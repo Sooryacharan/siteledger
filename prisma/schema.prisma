@@ -1,0 +1,3803 @@
+// SiteLedger data model. Step 1 of the product spec in docs/SPEC.md.
+//
+// Money: every rupee amount is integer paise (BigInt). ₹1 = 100 paise.
+// Rates are rupees as Decimal(18, 4). Areas are sqft as Decimal(14, 3).
+// Percents are human percents: 18.0000 means 18%, stored as Decimal(8, 4).
+//
+// Tenancy: every business table has organization_id. PostgreSQL RLS uses it.
+// Users, auth sessions, GST slabs, and TDS sections are global.
+//
+// Deletes: mutable rows use deleted_at. Posted money, stock, share ledgers,
+// audit events, approval actions, area revisions, and period-lock events
+// are append-only. Corrections are new rows (reversals), not updates.
+//
+// Hash columns are lowercase hex SHA-256. The canonical payloads live in
+// src/lib/integrity/hash.ts. Genesis prev_hash is 64 zeros.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Locale {
+  EN
+  TE
+  HI
+  KN
+}
+
+enum MembershipRole {
+  OWNER
+  FINANCE
+  PROJECT_MANAGER
+  SITE_ENGINEER
+  SALES
+  VENDOR
+  CUSTOMER
+  AUDITOR
+}
+
+enum PartyKind {
+  INDIVIDUAL
+  COMPANY
+  LLP
+  PARTNERSHIP
+  HUF
+  TRUST
+  GOVERNMENT
+}
+
+enum KycStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum ProjectStatus {
+  PLANNING
+  APPROVED
+  IN_PROGRESS
+  HANDED_OVER
+  CLOSED
+}
+
+enum CostAreaBasis {
+  CARPET
+  BUILT_UP
+  SUPER_BUILT_UP
+}
+
+enum UnitStatus {
+  AVAILABLE
+  BLOCKED
+  BOOKED
+  AGREEMENT
+  REGISTERED
+  HANDED_OVER
+  CANCELLED
+  LANDOWNER_SHARE
+}
+
+enum UnitFacing {
+  NORTH
+  SOUTH
+  EAST
+  WEST
+  NORTH_EAST
+  NORTH_WEST
+  SOUTH_EAST
+  SOUTH_WEST
+}
+
+enum UnitAreaField {
+  CARPET_PLANNED
+  CARPET_APPROVED
+  CARPET_BUILT
+  BUILT_UP_PLANNED
+  BUILT_UP_APPROVED
+  BUILT_UP_BUILT
+  SUPER_BUILT_UP_PLANNED
+  SUPER_BUILT_UP_APPROVED
+  SUPER_BUILT_UP_BUILT
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  VISIT_PLANNED
+  VISITED
+  NEGOTIATING
+  BOOKED
+  LOST
+}
+
+enum FollowupChannel {
+  CALL
+  WHATSAPP
+  EMAIL
+  VISIT
+}
+
+enum FollowupOutcome {
+  DONE
+  NO_ANSWER
+  RESCHEDULED
+  NOT_INTERESTED
+}
+
+enum SiteVisitStatus {
+  SCHEDULED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+enum BookingStatus {
+  TOKEN
+  BOOKED
+  AGREEMENT
+  REGISTERED
+  CANCELLED
+  TRANSFERRED
+}
+
+enum DemandMilestone {
+  ON_BOOKING
+  ON_AGREEMENT
+  ON_EXCAVATION
+  ON_PLINTH
+  ON_SLAB
+  ON_BRICKWORK
+  ON_FINISHING
+  ON_POSSESSION
+  CUSTOM
+}
+
+enum DemandStatus {
+  RAISED
+  PART_PAID
+  PAID
+  CANCELLED
+}
+
+enum MoneyChannel {
+  NEFT
+  RTGS
+  IMPS
+  UPI
+  CHEQUE
+  CASH
+}
+
+enum ReceiptStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+enum AgreementKind {
+  ALLOTMENT
+  AGREEMENT_FOR_SALE
+  SALE_DEED
+  CONSTRUCTION_AGREEMENT
+}
+
+enum AgreementStatus {
+  DRAFT
+  SIGNED
+  REGISTERED
+  CANCELLED
+}
+
+enum TransferChargePayer {
+  FROM_BUYER
+  TO_BUYER
+  DEVELOPER
+}
+
+enum ShareBasis {
+  PROFIT
+  REVENUE
+  SALEABLE_AREA
+}
+
+enum ShareEntryType {
+  CONTRIBUTION
+  DRAWING
+  HURDLE
+  PROFIT
+  LOSS
+  FIXED
+  ADJUSTMENT
+}
+
+enum CapitalInstrument {
+  EQUITY
+  LAND
+  OTHER
+}
+
+enum AllocationReason {
+  LAND_SHARE
+  INVESTOR
+  MARKETING
+}
+
+enum IndentStatus {
+  DRAFT
+  SUBMITTED
+  QUOTED
+  ORDERED
+  CLOSED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  DRAFT
+  RECEIVED
+  SELECTED
+  REJECTED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ISSUED
+  PART_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum GrnStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SUBMITTED
+  MATCHED
+  APPROVED
+  PART_PAID
+  PAID
+  REJECTED
+  VOID
+}
+
+enum InvoiceSource {
+  INTERNAL
+  VENDOR_PORTAL
+}
+
+enum MatchStatus {
+  MATCHED
+  QTY_VARIANCE
+  RATE_VARIANCE
+  MISSING_GRN
+  MISSING_PO
+}
+
+enum SupplyType {
+  INTRA_STATE
+  INTER_STATE
+}
+
+enum StockMovement {
+  RECEIPT
+  ISSUE
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  RETURN
+}
+
+enum ValuationMethod {
+  WEIGHTED_AVERAGE
+}
+
+enum WorkOrderStatus {
+  DRAFT
+  ISSUED
+  IN_PROGRESS
+  CLOSED
+  CANCELLED
+}
+
+enum MeasurementStatus {
+  DRAFT
+  CHECKED
+  BILLED
+}
+
+enum RaBillStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PART_PAID
+  PAID
+  REJECTED
+  VOID
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+}
+
+enum RetentionAction {
+  HOLD
+  RELEASE
+}
+
+enum AdvanceStatus {
+  OPEN
+  CLOSED
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+
+enum FiscalYearStatus {
+  OPEN
+  CLOSED
+}
+
+enum PeriodStatus {
+  OPEN
+  SOFT_CLOSED
+  LOCKED
+}
+
+enum PeriodLockAction {
+  SOFT_CLOSE
+  LOCK
+  REOPEN_REQUEST
+  REOPEN
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+
+enum JournalSource {
+  MANUAL
+  RECEIPT
+  PAYMENT
+  VENDOR_INVOICE
+  RA_BILL
+  CUSTOMER_INTEREST
+  LOAN_INTEREST
+  LOAN_DRAWDOWN
+  LOAN_EMI
+  LOAN_PREPAYMENT
+  CAPITAL
+  RETENTION
+  CONTRACTOR_ADVANCE
+  ADVANCE_RECOVERY
+  CUSTOMER_REFUND
+  TALLY_IMPORT
+  REVERSAL
+}
+
+enum BankMatchStatus {
+  UNMATCHED
+  MATCHED
+  IGNORED
+}
+
+enum BudgetStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+}
+
+enum LoanKind {
+  BANK
+  PARTNER
+  NBFC
+}
+
+enum LoanStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+enum LoanRepaymentStyle {
+  EMI
+  INTEREST_ONLY
+  ON_DEMAND
+}
+
+enum EmiStatus {
+  DUE
+  PART_PAID
+  PAID
+  WAIVED
+  SUPERSEDED
+}
+
+enum LoanTxnType {
+  DRAWDOWN
+  EMI_PAYMENT
+  PREPAYMENT
+  INTEREST_PAYMENT
+  FEE
+  PENALTY
+}
+
+enum PaymentPurpose {
+  VENDOR_INVOICE
+  RA_BILL
+  CONTRACTOR_ADVANCE
+  LOAN_REPAYMENT
+  CUSTOMER_REFUND
+  RETENTION_RELEASE
+  STATUTORY
+  OTHER
+}
+
+enum PaymentStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PAID
+  VOID
+}
+
+enum ApprovalEntity {
+  PAYMENT
+  VENDOR_INVOICE
+  RA_BILL
+  JOURNAL
+  BOOKING_CANCELLATION
+  BOOKING_TRANSFER
+  STOCK_ADJUSTMENT
+  PERIOD_REOPEN
+  WORK_ORDER
+  PURCHASE_ORDER
+  CUSTOMER_REFUND
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+enum ExceptionCode {
+  UNMATCHED_BANK_LINE
+  PAYMENT_WITHOUT_INVOICE
+  INVOICE_WITHOUT_GRN
+  AREA_VARIANCE
+  MATERIAL_VARIANCE
+  WASTAGE_OVER_NORM
+  ROUND_FIGURE_PAYMENT
+  WEEKEND_PAYMENT
+  DUPLICATE_INVOICE
+  DUPLICATE_VENDOR
+  APPROVAL_OVERDUE
+  MISSING_PAYMENT_DOCUMENT
+  MISSING_APPROVAL
+  PERIOD_LOCK_REJECTED
+  SYNC_REJECTED
+  NEGATIVE_STOCK
+  RELATED_PARTY_PAYMENT
+  BUDGET_OVERRUN
+  GST_SPLIT_MISMATCH
+}
+
+enum ExceptionSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum RecordRef {
+  PROJECT
+  PHASE
+  TOWER
+  FLOOR
+  UNIT
+  PARTY
+  LEAD
+  BOOKING
+  AGREEMENT
+  BOOKING_CANCELLATION
+  BOOKING_TRANSFER
+  DEMAND_NOTE
+  RECEIPT
+  INTEREST_ACCRUAL
+  CAPITAL_CONTRIBUTION
+  PROFIT_SHARING_AGREEMENT
+  SHARE_COMPUTATION
+  INDENT
+  VENDOR_QUOTE
+  PURCHASE_ORDER
+  GOODS_RECEIPT
+  VENDOR_INVOICE
+  PAYMENT
+  JOURNAL_ENTRY
+  RA_BILL
+  WORK_ORDER
+  MEASUREMENT
+  MATERIAL_ISSUE
+  LABOUR_ATTENDANCE
+  LOAN
+  EMI_SCHEDULE
+  BANK_STATEMENT
+  IMPORT_BATCH
+  PROGRESS_UPDATE
+  CUSTOMER_STATEMENT
+  CONTRACTOR_ADVANCE
+  BUDGET
+  USER
+  MEMBERSHIP
+  ACCOUNTING_PERIOD
+  APPROVAL_REQUEST
+  GL_ACCOUNT
+  BANK_ACCOUNT
+  // Step 3. The audit log names these records. No new business tables.
+  ORGANIZATION
+  FISCAL_YEAR
+  APPROVAL_POLICY
+  APPROVAL_ACTION
+  PERIOD_LOCK_EVENT
+  PROJECT_ASSIGNMENT
+  DEVICE
+  JOURNAL_LINE
+}
+
+enum OcrStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum ImportKind {
+  EXCEL_UNITS
+  EXCEL_LEADS
+  EXCEL_VENDORS
+  EXCEL_ATTENDANCE
+  BANK_CSV
+  BANK_PDF
+  TALLY_XML
+  TALLY_XLSX
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum OfflineEntity {
+  LABOUR_ATTENDANCE
+  MATERIAL_ISSUE
+  MEASUREMENT
+  GOODS_RECEIPT
+  PROGRESS_UPDATE
+  RECEIPT
+}
+
+enum SyncStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+enum ChainName {
+  JOURNAL
+  STOCK
+  SHARE
+  AUDIT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  SOFT_DELETE
+  POST
+  REVERSE
+  APPROVE
+  REJECT
+  LOGIN
+  EXPORT
+  LOCK
+  REOPEN
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum ComputationStatus {
+  POSTED
+  SUPERSEDED
+}
+
+// ---------------------------------------------------------------------------
+// Identity, tenancy, auth
+// ---------------------------------------------------------------------------
+
+/// A developer firm. Every business row belongs to one organization.
+model Organization {
+  id                 String    @id @default(uuid()) @db.Uuid
+  slug               String    @unique
+  legalName          String    @map("legal_name")
+  displayName        String    @map("display_name")
+  pan                String?
+  panShapeValid      Boolean?  @map("pan_shape_valid")
+  gstin              String?
+  gstinChecksumValid Boolean?  @map("gstin_checksum_valid")
+  gstinValidatedAt   DateTime? @map("gstin_validated_at")
+  stateCode          String    @map("state_code")
+  city               String?
+  timezone           String    @default("Asia/Kolkata")
+  locale             Locale    @default(EN)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  accountingPeriods       AccountingPeriod[]
+  advanceRecoveries       AdvanceRecovery[]
+  agreements              Agreement[]
+  approvalActions         ApprovalAction[]
+  approvalPolicies        ApprovalPolicy[]
+  approvalRequests        ApprovalRequest[]
+  auditEvents             AuditEvent[]
+  bankAccounts            BankAccount[]
+  bankStatementImports    BankStatementImport[]
+  bankStatementLines      BankStatementLine[]
+  boqItems                BoqItem[]
+  bookingCancellations    BookingCancellation[]
+  bookingCharges          BookingCharge[]
+  bookingCustomers        BookingCustomer[]
+  bookingTransfers        BookingTransfer[]
+  bookings                Booking[]
+  budgetLines             BudgetLine[]
+  budgets                 Budget[]
+  capitalContributions    CapitalContribution[]
+  chainHeads              ChainHead[]
+  contractorAdvances      ContractorAdvance[]
+  contractorProfiles      ContractorProfile[]
+  costCentres             CostCentre[]
+  customerStatements      CustomerStatement[]
+  demandNotes             DemandNote[]
+  demandScheduleItems     DemandScheduleItem[]
+  devices                 Device[]
+  documentSequences       DocumentSequence[]
+  documents               Document[]
+  emiScheduleLines        EmiScheduleLine[]
+  emiSchedules            EmiSchedule[]
+  exceptionItems          ExceptionItem[]
+  exceptionRules          ExceptionRule[]
+  fiscalYears             FiscalYear[]
+  floors                  Floor[]
+  glAccounts              GlAccount[]
+  goodsReceiptLines       GoodsReceiptLine[]
+  goodsReceipts           GoodsReceipt[]
+  importBatches           ImportBatch[]
+  indentLines             IndentLine[]
+  indents                 Indent[]
+  interestAccruals        InterestAccrual[]
+  interestRules           InterestRule[]
+  journalEntries          JournalEntry[]
+  journalLines            JournalLine[]
+  labourAttendances       LabourAttendance[]
+  leadActivities          LeadActivity[]
+  leadFollowups           LeadFollowup[]
+  leads                   Lead[]
+  loanInterestAccruals    LoanInterestAccrual[]
+  loanTransactions        LoanTransaction[]
+  loans                   Loan[]
+  materialCategories      MaterialCategory[]
+  materialIssueLines      MaterialIssueLine[]
+  materialIssues          MaterialIssue[]
+  materials               Material[]
+  measurementEntries      MeasurementEntry[]
+  memberships             Membership[]
+  notifications           Notification[]
+  ocrExtractions          OcrExtraction[]
+  parties                 Party[]
+  partyAddresses          PartyAddress[]
+  partyBankAccounts       PartyBankAccount[]
+  partyContacts           PartyContact[]
+  paymentAllocations      PaymentAllocation[]
+  paymentSourceLinks      PaymentSourceLink[]
+  payments                Payment[]
+  periodLockEvents        PeriodLockEvent[]
+  profitSharingAgreements ProfitSharingAgreement[]
+  profitSharingRules      ProfitSharingRule[]
+  progressUpdates         ProgressUpdate[]
+  projectAssignments      ProjectAssignment[]
+  projectPhases           ProjectPhase[]
+  projects                Project[]
+  purchaseOrderLines      PurchaseOrderLine[]
+  purchaseOrders          PurchaseOrder[]
+  quoteComparisons        QuoteComparison[]
+  raBillLines             RaBillLine[]
+  raBills                 RaBill[]
+  receiptAllocations      ReceiptAllocation[]
+  receipts                Receipt[]
+  reconciliationMatches   ReconciliationMatch[]
+  retentionEntries        RetentionEntry[]
+  searchDocuments         SearchDocument[]
+  shareComputations       ShareComputation[]
+  shareLedgerEntries      ShareLedgerEntry[]
+  siteVisits              SiteVisit[]
+  stockLedgerEntries      StockLedgerEntry[]
+  stores                  Store[]
+  syncMutations           SyncMutation[]
+  tallyLedgerMaps         TallyLedgerMap[]
+  threeWayMatchLines      ThreeWayMatchLine[]
+  threeWayMatches         ThreeWayMatch[]
+  towers                  Tower[]
+  unitAllocations         UnitAllocation[]
+  unitAreaRevisions       UnitAreaRevision[]
+  units                   Unit[]
+  vendorInvoiceLines      VendorInvoiceLine[]
+  vendorInvoices          VendorInvoice[]
+  vendorProfiles          VendorProfile[]
+  vendorQuoteLines        VendorQuoteLine[]
+  vendorQuotes            VendorQuote[]
+  workOrderLines          WorkOrderLine[]
+  workOrders              WorkOrder[]
+  workers                 Worker[]
+
+  @@map("organizations")
+}
+
+/// Login identity. A person can belong to several firms via Membership.
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  phoneE164     String?   @map("phone_e164")
+  locale        Locale    @default(EN)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  accounts               Account[]
+  approvalActions        ApprovalAction[]
+  approvalRequests       ApprovalRequest[]
+  areaRevisions          UnitAreaRevision[]
+  assignedLeads          Lead[]
+  attendanceRecorded     LabourAttendance[]
+  auditEvents            AuditEvent[]
+  customerStatements     CustomerStatement[]
+  devices                Device[]
+  documentsUploaded      Document[]
+  exceptionsAcknowledged ExceptionItem[]       @relation("ExceptionAcknowledger")
+  exceptionsResolved     ExceptionItem[]       @relation("ExceptionResolver")
+  followupsAssigned      LeadFollowup[]
+  goodsReceiptsReceived  GoodsReceipt[]
+  importBatches          ImportBatch[]
+  indentsRequested       Indent[]
+  interestAccruals       InterestAccrual[]
+  journalsPosted         JournalEntry[]
+  leadActivities         LeadActivity[]
+  loanInterestAccruals   LoanInterestAccrual[]
+  materialIssues         MaterialIssue[]
+  measurementsChecked    MeasurementEntry[]    @relation("CheckedBy")
+  measurementsTaken      MeasurementEntry[]    @relation("MeasuredBy")
+  memberships            Membership[]
+  notifications          Notification[]
+  paymentsPrepared       Payment[]
+  periodLockEvents       PeriodLockEvent[]
+  periodsLocked          AccountingPeriod[]
+  progressUpdates        ProgressUpdate[]
+  projectAssignments     ProjectAssignment[]
+  quoteComparisons       QuoteComparison[]
+  receiptsRecorded       Receipt[]
+  reconciliations        ReconciliationMatch[]
+  salesBookings          Booking[]
+  sessions               Session[]
+  shareComputations      ShareComputation[]
+  siteVisits             SiteVisit[]
+  statementImports       BankStatementImport[]
+  threeWayMatches        ThreeWayMatch[]
+
+  @@map("users")
+}
+
+/// Auth.js account. Field names match the Prisma adapter.
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("auth_accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id") @db.Uuid
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auth_sessions")
+}
+
+model VerificationToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("auth_verification_tokens")
+}
+
+/// Org role. VENDOR and CUSTOMER must set partyId; staff roles must not.
+/// OWNER may set partyId only as a shortcut to "my partner ledger". It does
+/// not restrict what that owner can see.
+model Membership {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  role           MembershipRole
+  partyId        String?        @map("party_id") @db.Uuid
+  isActive       Boolean        @default(true) @map("is_active")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  deletedAt      DateTime?      @map("deleted_at")
+  createdById    String?        @map("created_by_id") @db.Uuid
+  updatedById    String?        @map("updated_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  party        Party?       @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, userId], map: "memberships_org_user_idx")
+  @@index([partyId], map: "memberships_party_idx")
+  @@map("memberships")
+}
+
+/// Project scope for PROJECT_MANAGER, SITE_ENGINEER, and SALES.
+/// Those roles see only assigned projects. OWNER, FINANCE, and AUDITOR do not consult this table.
+model ProjectAssignment {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+  createdById    String?   @map("created_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId], map: "project_assignments_org_idx")
+  @@index([userId], map: "project_assignments_user_idx")
+  @@index([projectId], map: "project_assignments_project_idx")
+  @@map("project_assignments")
+}
+
+model Device {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  label          String
+  platform       DevicePlatform
+  lastSeenAt     DateTime?      @map("last_seen_at")
+  revokedAt      DateTime?      @map("revoked_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  syncMutations SyncMutation[]
+
+  @@index([organizationId, userId], map: "devices_org_user_idx")
+  @@map("devices")
+}
+
+// ---------------------------------------------------------------------------
+// Audit, hash-chain heads, approvals, periods
+// ---------------------------------------------------------------------------
+
+/// Append-only. No updated_at and no deleted_at. The AUDIT chain covers these rows.
+model AuditEvent {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  actorId        String?     @map("actor_id") @db.Uuid
+  action         AuditAction
+  entityType     RecordRef   @map("entity_type")
+  entityId       String?     @map("entity_id") @db.Uuid
+  occurredAt     DateTime    @default(now()) @map("occurred_at")
+  before         Json?
+  after          Json?
+  requestId      String?     @map("request_id")
+  ipAddress      String?     @map("ip_address")
+  userAgent      String?     @map("user_agent")
+  deviceId       String?     @map("device_id") @db.Uuid
+  sequence       Int
+  prevHash       String      @map("prev_hash")
+  eventHash      String      @map("event_hash")
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sequence], map: "audit_events_org_seq")
+  @@index([organizationId, entityType, entityId], map: "audit_events_entity_idx")
+  @@index([actorId], map: "audit_events_actor_idx")
+  @@map("audit_events")
+}
+
+/// One row per organization per chain. Moved forward only inside the posting transaction.
+model ChainHead {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  chain          ChainName
+  lastHash       String    @map("last_hash")
+  lastSequence   Int       @default(0) @map("last_sequence")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, chain], map: "chain_heads_org_chain")
+  @@map("chain_heads")
+}
+
+/// Amount bands and steps. autoApprove may be used only below a threshold the firm sets.
+/// Period reopen is not configurable: the service requires an OWNER action. See docs.
+model ApprovalPolicy {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  entityType     ApprovalEntity  @map("entity_type")
+  minAmountPaise BigInt          @default(0) @map("min_amount_paise")
+  maxAmountPaise BigInt?         @map("max_amount_paise")
+  stepOrder      Int             @map("step_order")
+  approverRole   MembershipRole? @map("approver_role")
+  autoApprove    Boolean         @default(false) @map("auto_approve")
+  plainLanguage  String          @map("plain_language")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  deletedAt      DateTime?       @map("deleted_at")
+  createdById    String?         @map("created_by_id") @db.Uuid
+  updatedById    String?         @map("updated_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, entityType], map: "approval_policies_org_entity_idx")
+  @@map("approval_policies")
+}
+
+model ApprovalRequest {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  entityType     ApprovalEntity @map("entity_type")
+  entityId       String         @map("entity_id") @db.Uuid
+  amountPaise    BigInt?        @map("amount_paise")
+  status         ApprovalStatus @default(PENDING)
+  currentStep    Int            @default(1) @map("current_step")
+  requestedById  String         @map("requested_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  completedAt    DateTime?      @map("completed_at")
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  requestedBy          User                  @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  actions              ApprovalAction[]
+  payments             Payment[]
+  vendorInvoices       VendorInvoice[]
+  raBills              RaBill[]
+  workOrders           WorkOrder[]
+  purchaseOrders       PurchaseOrder[]
+  bookingCancellations BookingCancellation[]
+  bookingTransfers     BookingTransfer[]
+  periodLockEvents     PeriodLockEvent[]
+  stockLedgerEntries   StockLedgerEntry[]
+
+  @@index([organizationId, entityType, entityId], map: "approval_requests_entity_idx")
+  @@index([requestedById], map: "approval_requests_requester_idx")
+  @@map("approval_requests")
+}
+
+/// Append-only decision. actorId is null only for an auto-approve step.
+model ApprovalAction {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  requestId      String           @map("request_id") @db.Uuid
+  stepOrder      Int              @map("step_order")
+  actorId        String?          @map("actor_id") @db.Uuid
+  decision       ApprovalDecision
+  comment        String?
+  actedAt        DateTime         @default(now()) @map("acted_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  request      ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  actor        User?           @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([requestId], map: "approval_actions_request_idx")
+  @@map("approval_actions")
+}
+
+model FiscalYear {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  name           String
+  startsOn       DateTime         @map("starts_on") @db.Date
+  endsOn         DateTime         @map("ends_on") @db.Date
+  status         FiscalYearStatus @default(OPEN)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  periods      AccountingPeriod[]
+  sequences    DocumentSequence[]
+
+  @@unique([organizationId, name], map: "fiscal_years_org_name")
+  @@map("fiscal_years")
+}
+
+model AccountingPeriod {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  fiscalYearId   String       @map("fiscal_year_id") @db.Uuid
+  name           String
+  startsOn       DateTime     @map("starts_on") @db.Date
+  endsOn         DateTime     @map("ends_on") @db.Date
+  status         PeriodStatus @default(OPEN)
+  lockedAt       DateTime?    @map("locked_at")
+  lockedById     String?      @map("locked_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  fiscalYear   FiscalYear        @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  lockedBy     User?             @relation(fields: [lockedById], references: [id], onDelete: Restrict)
+  journals     JournalEntry[]
+  lockEvents   PeriodLockEvent[]
+
+  @@unique([organizationId, startsOn], map: "accounting_periods_org_start")
+  @@index([fiscalYearId], map: "accounting_periods_fy_idx")
+  @@map("accounting_periods")
+}
+
+/// Append-only history of closes and reopens. REOPEN requires an owner-approved request.
+model PeriodLockEvent {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @map("organization_id") @db.Uuid
+  periodId          String           @map("period_id") @db.Uuid
+  action            PeriodLockAction
+  reason            String
+  actorId           String           @map("actor_id") @db.Uuid
+  approvalRequestId String?          @map("approval_request_id") @db.Uuid
+  occurredAt        DateTime         @default(now()) @map("occurred_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  period          AccountingPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  actor           User             @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+
+  @@index([periodId], map: "period_lock_events_period_idx")
+  @@map("period_lock_events")
+}
+
+/// Statutory GST slabs. Global, not tenant data. Documents snapshot the percents they used.
+model GstRate {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String
+  cgstPercent   Decimal   @map("cgst_percent") @db.Decimal(8, 4)
+  sgstPercent   Decimal   @map("sgst_percent") @db.Decimal(8, 4)
+  igstPercent   Decimal   @map("igst_percent") @db.Decimal(8, 4)
+  cessPercent   Decimal   @default(0) @map("cess_percent") @db.Decimal(8, 4)
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+
+  bookings           Booking[]
+  demandNotes        DemandNote[]
+  materials          Material[]
+  purchaseOrderLines PurchaseOrderLine[]
+  vendorInvoiceLines VendorInvoiceLine[]
+  vendorQuoteLines   VendorQuoteLine[]
+
+  @@map("gst_rates")
+}
+
+/// Statutory TDS sections. A vendor may carry a lower-deduction override.
+model TdsSection {
+  id             String  @id @default(uuid()) @db.Uuid
+  code           String  @unique
+  description    String
+  ratePercent    Decimal @map("rate_percent") @db.Decimal(8, 4)
+  thresholdPaise BigInt? @map("threshold_paise")
+  isActive       Boolean @default(true) @map("is_active")
+
+  vendorProfiles VendorProfile[]
+  vendorInvoices VendorInvoice[]
+  workOrders     WorkOrder[]
+  raBills        RaBill[]
+
+  @@map("tds_sections")
+}
+
+model DocumentSequence {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  fiscalYearId   String @map("fiscal_year_id") @db.Uuid
+  docType        String @map("doc_type")
+  prefix         String
+  nextNumber     Int    @default(1) @map("next_number")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  fiscalYear   FiscalYear   @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, docType, fiscalYearId], map: "document_sequences_org_type_fy")
+  @@map("document_sequences")
+}
+
+// ---------------------------------------------------------------------------
+// Parties: customers, vendors, contractors, partners, lenders
+// ---------------------------------------------------------------------------
+
+/// One legal person. The same party can be a vendor and a partner.
+/// PAN and GSTIN are stored so duplicate detection and TDS returns can run.
+/// Aadhaar numbers are not stored. KYC scans are Documents.
+model Party {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  kind               PartyKind
+  legalName          String    @map("legal_name")
+  displayName        String    @map("display_name")
+  pan                String?
+  panNormalized      String?   @map("pan_normalized")
+  panShapeValid      Boolean?  @map("pan_shape_valid")
+  gstin              String?
+  gstinNormalized    String?   @map("gstin_normalized")
+  gstinChecksumValid Boolean?  @map("gstin_checksum_valid")
+  gstinValidatedAt   DateTime? @map("gstin_validated_at")
+  isCustomer         Boolean   @default(false) @map("is_customer")
+  isVendor           Boolean   @default(false) @map("is_vendor")
+  isContractor       Boolean   @default(false) @map("is_contractor")
+  isPartner          Boolean   @default(false) @map("is_partner")
+  isLender           Boolean   @default(false) @map("is_lender")
+  isRelatedParty     Boolean   @default(false) @map("is_related_party")
+  relatedToPartyId   String?   @map("related_to_party_id") @db.Uuid
+  relatedPartyNote   String?   @map("related_party_note")
+  rowVersion         Int       @default(1) @map("row_version")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+  createdById        String?   @map("created_by_id") @db.Uuid
+  updatedById        String?   @map("updated_by_id") @db.Uuid
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  relatedToParty       Party?                @relation("PartyRelatedTo", fields: [relatedToPartyId], references: [id], onDelete: Restrict)
+  relatedParties       Party[]               @relation("PartyRelatedTo")
+  addresses            PartyAddress[]
+  bankAccounts         PartyBankAccount[]
+  contacts             PartyContact[]
+  vendorProfile        VendorProfile?
+  contractorProfile    ContractorProfile?
+  memberships          Membership[]
+  bookingCustomers     BookingCustomer[]
+  transfersFrom        BookingTransfer[]     @relation("TransferFromParty")
+  transfersTo          BookingTransfer[]     @relation("TransferToParty")
+  receipts             Receipt[]
+  capitalContributions CapitalContribution[]
+  profitSharingRules   ProfitSharingRule[]
+  unitAllocations      UnitAllocation[]
+  shareLedgerEntries   ShareLedgerEntry[]
+  vendorQuotes         VendorQuote[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceipts        GoodsReceipt[]
+  vendorInvoices       VendorInvoice[]
+  workers              Worker[]
+  workOrders           WorkOrder[]
+  retentionEntries     RetentionEntry[]
+  contractorAdvances   ContractorAdvance[]
+  loansAsLender        Loan[]
+  payments             Payment[]
+  journalLines         JournalLine[]
+
+  @@index([organizationId, panNormalized], map: "parties_org_pan_idx")
+  @@index([organizationId, gstinNormalized], map: "parties_org_gstin_idx")
+  @@index([organizationId, displayName], map: "parties_org_name_idx")
+  @@map("parties")
+}
+
+model PartyAddress {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  partyId        String    @map("party_id") @db.Uuid
+  line1          String    @map("line_1")
+  line2          String?   @map("line_2")
+  city           String
+  stateCode      String    @map("state_code")
+  pincode        String
+  isPrimary      Boolean   @default(false) @map("is_primary")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@index([partyId], map: "party_addresses_party_idx")
+  @@map("party_addresses")
+}
+
+/// Bank account used both to pay a vendor and to detect duplicates.
+/// fingerprint is sha256(uppercase IFSC + "|" + digits-only account number).
+model PartyBankAccount {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  partyId        String    @map("party_id") @db.Uuid
+  bankName       String    @map("bank_name")
+  accountHolder  String    @map("account_holder")
+  accountNumber  String    @map("account_number")
+  ifsc           String
+  fingerprint    String
+  isPrimary      Boolean   @default(false) @map("is_primary")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, fingerprint], map: "party_bank_accounts_fingerprint_idx")
+  @@index([partyId], map: "party_bank_accounts_party_idx")
+  @@map("party_bank_accounts")
+}
+
+/// phone_e164 is the duplicate-detection key, compared inside one organization.
+model PartyContact {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  partyId        String    @map("party_id") @db.Uuid
+  name           String?
+  phoneE164      String?   @map("phone_e164")
+  email          String?
+  isPrimary      Boolean   @default(false) @map("is_primary")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, phoneE164], map: "party_contacts_org_phone_idx")
+  @@index([partyId], map: "party_contacts_party_idx")
+  @@map("party_contacts")
+}
+
+model VendorProfile {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  partyId                String    @unique @map("party_id") @db.Uuid
+  kycStatus              KycStatus @default(PENDING) @map("kyc_status")
+  udyamNumber            String?   @map("udyam_number")
+  tdsSectionId           String?   @map("tds_section_id") @db.Uuid
+  tdsRateOverridePercent Decimal?  @map("tds_rate_override_percent") @db.Decimal(8, 4)
+  notes                  String?
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  tdsSection   TdsSection?  @relation(fields: [tdsSectionId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId], map: "vendor_profiles_org_idx")
+  @@map("vendor_profiles")
+}
+
+model ContractorProfile {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  partyId                 String    @unique @map("party_id") @db.Uuid
+  licenseNumber           String?   @map("license_number")
+  pfEstablishmentCode     String?   @map("pf_establishment_code")
+  esiCode                 String?   @map("esi_code")
+  defaultRetentionPercent Decimal   @default(5) @map("default_retention_percent") @db.Decimal(8, 4)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  deletedAt               DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@map("contractor_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Projects, phases, towers, floors, units
+// ---------------------------------------------------------------------------
+
+model Project {
+  id                       String        @id @default(uuid()) @db.Uuid
+  organizationId           String        @map("organization_id") @db.Uuid
+  code                     String
+  name                     String
+  status                   ProjectStatus @default(PLANNING)
+  addressLine              String?       @map("address_line")
+  city                     String?
+  stateCode                String        @map("state_code")
+  pincode                  String?
+  reraRegistrationNumber   String?       @map("rera_registration_number")
+  reraStateCode            String?       @map("rera_state_code")
+  reraValidFrom            DateTime?     @map("rera_valid_from") @db.Date
+  reraValidUntil           DateTime?     @map("rera_valid_until") @db.Date
+  gstin                    String?
+  gstinChecksumValid       Boolean?      @map("gstin_checksum_valid")
+  costAreaBasis            CostAreaBasis @default(SUPER_BUILT_UP) @map("cost_area_basis")
+  areaVarianceAlertPercent Decimal       @default(2) @map("area_variance_alert_percent") @db.Decimal(8, 4)
+  wastageAlertPercent      Decimal       @default(2) @map("wastage_alert_percent") @db.Decimal(8, 4)
+  startsOn                 DateTime?     @map("starts_on") @db.Date
+  plannedEndsOn            DateTime?     @map("planned_ends_on") @db.Date
+  rowVersion               Int           @default(1) @map("row_version")
+  createdAt                DateTime      @default(now()) @map("created_at")
+  updatedAt                DateTime      @updatedAt @map("updated_at")
+  deletedAt                DateTime?     @map("deleted_at")
+  createdById              String?       @map("created_by_id") @db.Uuid
+  updatedById              String?       @map("updated_by_id") @db.Uuid
+
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  assignments             ProjectAssignment[]
+  unitAreaRevisions       UnitAreaRevision[]
+  advanceRecoveries       AdvanceRecovery[]
+  phases                  ProjectPhase[]
+  towers                  Tower[]
+  floors                  Floor[]
+  units                   Unit[]
+  costCentres             CostCentre[]
+  boqItems                BoqItem[]
+  leads                   Lead[]
+  siteVisits              SiteVisit[]
+  bookings                Booking[]
+  agreements              Agreement[]
+  bookingCancellations    BookingCancellation[]
+  bookingTransfers        BookingTransfer[]
+  demandNotes             DemandNote[]
+  demandScheduleItems     DemandScheduleItem[]
+  interestRules           InterestRule[]
+  interestAccruals        InterestAccrual[]
+  receipts                Receipt[]
+  customerStatements      CustomerStatement[]
+  progressUpdates         ProgressUpdate[]
+  capitalContributions    CapitalContribution[]
+  profitSharingAgreements ProfitSharingAgreement[]
+  profitSharingRules      ProfitSharingRule[]
+  unitAllocations         UnitAllocation[]
+  shareComputations       ShareComputation[]
+  shareLedgerEntries      ShareLedgerEntry[]
+  stores                  Store[]
+  indents                 Indent[]
+  purchaseOrders          PurchaseOrder[]
+  goodsReceipts           GoodsReceipt[]
+  vendorInvoices          VendorInvoice[]
+  stockLedgerEntries      StockLedgerEntry[]
+  materialIssues          MaterialIssue[]
+  labourAttendances       LabourAttendance[]
+  workOrders              WorkOrder[]
+  measurementEntries      MeasurementEntry[]
+  raBills                 RaBill[]
+  retentionEntries        RetentionEntry[]
+  contractorAdvances      ContractorAdvance[]
+  budgets                 Budget[]
+  loans                   Loan[]
+  payments                Payment[]
+  journalLines            JournalLine[]
+  exceptionItems          ExceptionItem[]
+
+  @@unique([organizationId, code], map: "projects_org_code")
+  @@index([organizationId, status], map: "projects_org_status_idx")
+  @@map("projects")
+}
+
+model ProjectPhase {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  name           String
+  sortOrder      Int       @map("sort_order")
+  startsOn       DateTime? @map("starts_on") @db.Date
+  endsOn         DateTime? @map("ends_on") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  towers          Tower[]
+  progressUpdates ProgressUpdate[]
+
+  @@unique([projectId, sortOrder], map: "project_phases_project_sort")
+  @@index([organizationId], map: "project_phases_org_idx")
+  @@map("project_phases")
+}
+
+model Tower {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  phaseId        String?   @map("phase_id") @db.Uuid
+  name           String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  phase           ProjectPhase?    @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  floors          Floor[]
+  units           Unit[]
+  progressUpdates ProgressUpdate[]
+
+  @@unique([projectId, name], map: "towers_project_name")
+  @@index([organizationId], map: "towers_org_idx")
+  @@map("towers")
+}
+
+model Floor {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  towerId        String    @map("tower_id") @db.Uuid
+  /// 0 is ground. Negative levels are basements.
+  levelNumber    Int       @map("level_number")
+  label          String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tower           Tower            @relation(fields: [towerId], references: [id], onDelete: Restrict)
+  units           Unit[]
+  progressUpdates ProgressUpdate[]
+
+  @@unique([towerId, levelNumber], map: "floors_tower_level")
+  @@index([organizationId], map: "floors_org_idx")
+  @@map("floors")
+}
+
+/// Areas are sqft. Planned, approved, and built are stored together.
+/// Every change also inserts a UnitAreaRevision. Current columns must match the latest revision.
+model Unit {
+  id                       String      @id @default(uuid()) @db.Uuid
+  organizationId           String      @map("organization_id") @db.Uuid
+  projectId                String      @map("project_id") @db.Uuid
+  towerId                  String?     @map("tower_id") @db.Uuid
+  floorId                  String?     @map("floor_id") @db.Uuid
+  flatNumber               String      @map("flat_number")
+  typology                 String?
+  facing                   UnitFacing?
+  status                   UnitStatus  @default(AVAILABLE)
+  carpetPlannedSqft        Decimal     @default(0) @map("carpet_planned_sqft") @db.Decimal(14, 3)
+  carpetApprovedSqft       Decimal     @default(0) @map("carpet_approved_sqft") @db.Decimal(14, 3)
+  carpetBuiltSqft          Decimal     @default(0) @map("carpet_built_sqft") @db.Decimal(14, 3)
+  builtUpPlannedSqft       Decimal     @default(0) @map("built_up_planned_sqft") @db.Decimal(14, 3)
+  builtUpApprovedSqft      Decimal     @default(0) @map("built_up_approved_sqft") @db.Decimal(14, 3)
+  builtUpBuiltSqft         Decimal     @default(0) @map("built_up_built_sqft") @db.Decimal(14, 3)
+  superBuiltUpPlannedSqft  Decimal     @default(0) @map("super_built_up_planned_sqft") @db.Decimal(14, 3)
+  superBuiltUpApprovedSqft Decimal     @default(0) @map("super_built_up_approved_sqft") @db.Decimal(14, 3)
+  superBuiltUpBuiltSqft    Decimal     @default(0) @map("super_built_up_built_sqft") @db.Decimal(14, 3)
+  rowVersion               Int         @default(1) @map("row_version")
+  createdAt                DateTime    @default(now()) @map("created_at")
+  updatedAt                DateTime    @updatedAt @map("updated_at")
+  deletedAt                DateTime?   @map("deleted_at")
+  createdById              String?     @map("created_by_id") @db.Uuid
+  updatedById              String?     @map("updated_by_id") @db.Uuid
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tower            Tower?             @relation(fields: [towerId], references: [id], onDelete: Restrict)
+  floor            Floor?             @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  areaRevisions    UnitAreaRevision[]
+  bookings         Booking[]
+  siteVisits       SiteVisit[]
+  unitAllocations  UnitAllocation[]
+  bookingTransfers BookingTransfer[]
+  journalLines     JournalLine[]
+  progressUpdates  ProgressUpdate[]
+
+  @@index([organizationId, projectId], map: "units_org_project_idx")
+  @@index([floorId], map: "units_floor_idx")
+  @@index([projectId, status], map: "units_project_status_idx")
+  @@map("units")
+}
+
+/// Append-only area trail. Variance alerts read the current Unit columns.
+model UnitAreaRevision {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  projectId      String        @map("project_id") @db.Uuid
+  unitId         String        @map("unit_id") @db.Uuid
+  field          UnitAreaField
+  previousSqft   Decimal       @map("previous_sqft") @db.Decimal(14, 3)
+  newSqft        Decimal       @map("new_sqft") @db.Decimal(14, 3)
+  reason         String
+  recordedAt     DateTime      @default(now()) @map("recorded_at")
+  recordedById   String        @map("recorded_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  unit         Unit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  recordedBy   User         @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([unitId, recordedAt], map: "unit_area_revisions_unit_idx")
+  @@map("unit_area_revisions")
+}
+
+model CostCentre {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  parentId       String?   @map("parent_id") @db.Uuid
+  code           String
+  name           String
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parent       CostCentre?   @relation("CostCentreTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     CostCentre[]  @relation("CostCentreTree")
+  boqItems     BoqItem[]
+  budgetLines  BudgetLine[]
+  journalLines JournalLine[]
+
+  @@unique([projectId, code], map: "cost_centres_project_code")
+  @@index([organizationId], map: "cost_centres_org_idx")
+  @@map("cost_centres")
+}
+
+/// BOQ norm. norm_qty_per_sqft is bags (or other UOM) per sqft of Project.costAreaBasis.
+/// expected qty = area × norm_qty_per_sqft × (1 + wastage_allowance_percent / 100).
+model BoqItem {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  projectId               String    @map("project_id") @db.Uuid
+  costCentreId            String?   @map("cost_centre_id") @db.Uuid
+  materialId              String?   @map("material_id") @db.Uuid
+  code                    String
+  description             String
+  uom                     String
+  normQty                 Decimal?  @map("norm_qty") @db.Decimal(18, 4)
+  normQtyPerSqft          Decimal?  @map("norm_qty_per_sqft") @db.Decimal(18, 6)
+  wastageAllowancePercent Decimal   @default(0) @map("wastage_allowance_percent") @db.Decimal(8, 4)
+  estimatedRateRupees     Decimal?  @map("estimated_rate_rupees") @db.Decimal(18, 4)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  deletedAt               DateTime? @map("deleted_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  costCentre         CostCentre?         @relation(fields: [costCentreId], references: [id], onDelete: Restrict)
+  material           Material?           @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  indentLines        IndentLine[]
+  materialIssueLines MaterialIssueLine[]
+  workOrderLines     WorkOrderLine[]
+  budgetLines        BudgetLine[]
+
+  @@unique([projectId, code], map: "boq_items_project_code")
+  @@index([organizationId], map: "boq_items_org_idx")
+  @@map("boq_items")
+}
+
+// ---------------------------------------------------------------------------
+// Sales CRM
+// ---------------------------------------------------------------------------
+
+model Lead {
+  id                String     @id @default(uuid()) @db.Uuid
+  organizationId    String     @map("organization_id") @db.Uuid
+  projectId         String?    @map("project_id") @db.Uuid
+  assignedToId      String?    @map("assigned_to_id") @db.Uuid
+  name              String
+  phoneE164         String?    @map("phone_e164")
+  email             String?
+  source            String?
+  status            LeadStatus @default(NEW)
+  budgetMinPaise    BigInt?    @map("budget_min_paise")
+  budgetMaxPaise    BigInt?    @map("budget_max_paise")
+  preferredTypology String?    @map("preferred_typology")
+  lostReason        String?    @map("lost_reason")
+  notes             String?
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  deletedAt         DateTime?  @map("deleted_at")
+  createdById       String?    @map("created_by_id") @db.Uuid
+  updatedById       String?    @map("updated_by_id") @db.Uuid
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project?       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  assignedTo   User?          @relation(fields: [assignedToId], references: [id], onDelete: Restrict)
+  followups    LeadFollowup[]
+  siteVisits   SiteVisit[]
+  activities   LeadActivity[]
+  bookings     Booking[]
+
+  @@index([organizationId, status], map: "leads_org_status_idx")
+  @@index([assignedToId], map: "leads_assignee_idx")
+  @@map("leads")
+}
+
+/// A scheduled next step. Distinct from the append-only activity log.
+model LeadFollowup {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  leadId         String           @map("lead_id") @db.Uuid
+  assignedToId   String?          @map("assigned_to_id") @db.Uuid
+  dueOn          DateTime         @map("due_on")
+  channel        FollowupChannel
+  notes          String?
+  completedAt    DateTime?        @map("completed_at")
+  outcome        FollowupOutcome?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  deletedAt      DateTime?        @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  assignedTo   User?        @relation(fields: [assignedToId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, dueOn], map: "lead_followups_org_due_idx")
+  @@index([leadId], map: "lead_followups_lead_idx")
+  @@map("lead_followups")
+}
+
+model SiteVisit {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  leadId         String          @map("lead_id") @db.Uuid
+  projectId      String          @map("project_id") @db.Uuid
+  unitId         String?         @map("unit_id") @db.Uuid
+  conductedById  String          @map("conducted_by_id") @db.Uuid
+  status         SiteVisitStatus @default(SCHEDULED)
+  scheduledStart DateTime        @map("scheduled_start")
+  visitedAt      DateTime?       @map("visited_at")
+  notes          String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  deletedAt      DateTime?       @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  unit         Unit?        @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  conductedBy  User         @relation(fields: [conductedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, scheduledStart], map: "site_visits_project_idx")
+  @@index([leadId], map: "site_visits_lead_idx")
+  @@map("site_visits")
+}
+
+/// Append-only contact log.
+model LeadActivity {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  leadId         String          @map("lead_id") @db.Uuid
+  actorId        String          @map("actor_id") @db.Uuid
+  channel        FollowupChannel
+  body           String
+  happenedAt     DateTime        @default(now()) @map("happened_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  actor        User         @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, happenedAt], map: "lead_activities_lead_idx")
+  @@map("lead_activities")
+}
+
+/// Commercial value is base + GST + charges. Schedule totals must equal totalPayablePaise.
+/// totalPayablePaise is what the buyer owes before buyer-side TDS.
+model Booking {
+  id                String        @id @default(uuid()) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  projectId         String        @map("project_id") @db.Uuid
+  unitId            String        @map("unit_id") @db.Uuid
+  leadId            String?       @map("lead_id") @db.Uuid
+  salesOwnerId      String        @map("sales_owner_id") @db.Uuid
+  bookingNumber     String        @map("booking_number")
+  bookedOn          DateTime      @map("booked_on") @db.Date
+  status            BookingStatus @default(TOKEN)
+  baseValuePaise    BigInt        @map("base_value_paise")
+  gstRateId         String?       @map("gst_rate_id") @db.Uuid
+  supplyType        SupplyType    @map("supply_type")
+  cgstPaise         BigInt        @default(0) @map("cgst_paise")
+  sgstPaise         BigInt        @default(0) @map("sgst_paise")
+  igstPaise         BigInt        @default(0) @map("igst_paise")
+  cessPaise         BigInt        @default(0) @map("cess_paise")
+  chargesPaise      BigInt        @default(0) @map("charges_paise")
+  chargesGstPaise   BigInt        @default(0) @map("charges_gst_paise")
+  totalPayablePaise BigInt        @map("total_payable_paise")
+  notes             String?
+  rowVersion        Int           @default(1) @map("row_version")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+  createdById       String?       @map("created_by_id") @db.Uuid
+  updatedById       String?       @map("updated_by_id") @db.Uuid
+
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  unit             Unit                 @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  lead             Lead?                @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  salesOwner       User                 @relation(fields: [salesOwnerId], references: [id], onDelete: Restrict)
+  gstRate          GstRate?             @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+  customers        BookingCustomer[]
+  charges          BookingCharge[]
+  agreements       Agreement[]
+  cancellation     BookingCancellation?
+  transfersOut     BookingTransfer[]    @relation("TransferFromBooking")
+  transfersIn      BookingTransfer[]    @relation("TransferToBooking")
+  scheduleItems    DemandScheduleItem[]
+  demandNotes      DemandNote[]
+  interestAccruals InterestAccrual[]
+  receipts         Receipt[]
+  statements       CustomerStatement[]
+
+  @@unique([organizationId, bookingNumber], map: "bookings_org_number")
+  @@index([projectId, status], map: "bookings_project_status_idx")
+  @@index([unitId], map: "bookings_unit_idx")
+  @@map("bookings")
+}
+
+model BookingCustomer {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  bookingId      String    @map("booking_id") @db.Uuid
+  partyId        String    @map("party_id") @db.Uuid
+  isPrimary      Boolean   @default(false) @map("is_primary")
+  sharePercent   Decimal   @default(100) @map("share_percent") @db.Decimal(8, 4)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  party        Party        @relation(fields: [partyId], references: [id], onDelete: Restrict)
+
+  @@unique([bookingId, partyId], map: "booking_customers_booking_party")
+  @@index([organizationId], map: "booking_customers_org_idx")
+  @@map("booking_customers")
+}
+
+model BookingCharge {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  bookingId      String    @map("booking_id") @db.Uuid
+  description    String
+  amountPaise    BigInt    @map("amount_paise")
+  cgstPaise      BigInt    @default(0) @map("cgst_paise")
+  sgstPaise      BigInt    @default(0) @map("sgst_paise")
+  igstPaise      BigInt    @default(0) @map("igst_paise")
+  cessPaise      BigInt    @default(0) @map("cess_paise")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId], map: "booking_charges_booking_idx")
+  @@map("booking_charges")
+}
+
+model Agreement {
+  id                   String          @id @default(uuid()) @db.Uuid
+  organizationId       String          @map("organization_id") @db.Uuid
+  projectId            String          @map("project_id") @db.Uuid
+  bookingId            String          @map("booking_id") @db.Uuid
+  agreementNumber      String          @map("agreement_number")
+  kind                 AgreementKind
+  status               AgreementStatus @default(DRAFT)
+  signedOn             DateTime?       @map("signed_on") @db.Date
+  registeredOn         DateTime?       @map("registered_on") @db.Date
+  registrationNumber   String?         @map("registration_number")
+  subRegistrar         String?         @map("sub_registrar")
+  stampDutyPaise       BigInt          @default(0) @map("stamp_duty_paise")
+  registrationFeePaise BigInt          @default(0) @map("registration_fee_paise")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+  deletedAt            DateTime?       @map("deleted_at")
+  createdById          String?         @map("created_by_id") @db.Uuid
+  updatedById          String?         @map("updated_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, agreementNumber], map: "agreements_org_number")
+  @@index([bookingId], map: "agreements_booking_idx")
+  @@map("agreements")
+}
+
+model BookingCancellation {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  projectId             String   @map("project_id") @db.Uuid
+  bookingId             String   @unique @map("booking_id") @db.Uuid
+  cancelledOn           DateTime @map("cancelled_on") @db.Date
+  reason                String
+  deductionPaise        BigInt   @default(0) @map("deduction_paise")
+  refundPaise           BigInt   @default(0) @map("refund_paise")
+  interestReversedPaise BigInt   @default(0) @map("interest_reversed_paise")
+  approvalRequestId     String?  @map("approval_request_id") @db.Uuid
+  journalEntryId        String?  @unique @map("journal_entry_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+  createdById           String?  @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking            Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  approvalRequest    ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  paymentAllocations PaymentAllocation[]
+
+  @@index([organizationId], map: "booking_cancellations_org_idx")
+  @@map("booking_cancellations")
+}
+
+model BookingTransfer {
+  id                        String              @id @default(uuid()) @db.Uuid
+  organizationId            String              @map("organization_id") @db.Uuid
+  projectId                 String              @map("project_id") @db.Uuid
+  unitId                    String              @map("unit_id") @db.Uuid
+  fromBookingId             String              @map("from_booking_id") @db.Uuid
+  toBookingId               String              @map("to_booking_id") @db.Uuid
+  fromPartyId               String              @map("from_party_id") @db.Uuid
+  toPartyId                 String              @map("to_party_id") @db.Uuid
+  transferredOn             DateTime            @map("transferred_on") @db.Date
+  transferChargesPaise      BigInt              @default(0) @map("transfer_charges_paise")
+  chargePayer               TransferChargePayer @map("charge_payer")
+  /// Opening balance carried onto the new booking. Receipts stay on the old booking.
+  ledgerCarriedForwardPaise BigInt              @default(0) @map("ledger_carried_forward_paise")
+  approvalRequestId         String?             @map("approval_request_id") @db.Uuid
+  journalEntryId            String?             @unique @map("journal_entry_id") @db.Uuid
+  notes                     String?
+  createdAt                 DateTime            @default(now()) @map("created_at")
+  createdById               String?             @map("created_by_id") @db.Uuid
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  unit            Unit             @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  fromBooking     Booking          @relation("TransferFromBooking", fields: [fromBookingId], references: [id], onDelete: Restrict)
+  toBooking       Booking          @relation("TransferToBooking", fields: [toBookingId], references: [id], onDelete: Restrict)
+  fromParty       Party            @relation("TransferFromParty", fields: [fromPartyId], references: [id], onDelete: Restrict)
+  toParty         Party            @relation("TransferToParty", fields: [toPartyId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId], map: "booking_transfers_org_idx")
+  @@index([unitId], map: "booking_transfers_unit_idx")
+  @@map("booking_transfers")
+}
+
+model DemandScheduleItem {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  projectId      String          @map("project_id") @db.Uuid
+  bookingId      String          @map("booking_id") @db.Uuid
+  sortOrder      Int             @map("sort_order")
+  milestone      DemandMilestone
+  customLabel    String?         @map("custom_label")
+  percent        Decimal         @db.Decimal(8, 4)
+  dueOn          DateTime?       @map("due_on") @db.Date
+  basePaise      BigInt          @map("base_paise")
+  cgstPaise      BigInt          @default(0) @map("cgst_paise")
+  sgstPaise      BigInt          @default(0) @map("sgst_paise")
+  igstPaise      BigInt          @default(0) @map("igst_paise")
+  cessPaise      BigInt          @default(0) @map("cess_paise")
+  totalPaise     BigInt          @map("total_paise")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  deletedAt      DateTime?       @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  demandNotes  DemandNote[]
+
+  @@unique([bookingId, sortOrder], map: "demand_schedule_booking_sort")
+  @@index([organizationId], map: "demand_schedule_org_idx")
+  @@map("demand_schedule_items")
+}
+
+model DemandNote {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  projectId              String       @map("project_id") @db.Uuid
+  bookingId              String       @map("booking_id") @db.Uuid
+  scheduleItemId         String?      @map("schedule_item_id") @db.Uuid
+  gstRateId              String?      @map("gst_rate_id") @db.Uuid
+  demandNumber           String       @map("demand_number")
+  status                 DemandStatus @default(RAISED)
+  raisedOn               DateTime     @map("raised_on") @db.Date
+  dueOn                  DateTime     @map("due_on") @db.Date
+  supplyType             SupplyType   @map("supply_type")
+  placeOfSupplyStateCode String       @map("place_of_supply_state_code")
+  basePaise              BigInt       @map("base_paise")
+  cgstPaise              BigInt       @default(0) @map("cgst_paise")
+  sgstPaise              BigInt       @default(0) @map("sgst_paise")
+  igstPaise              BigInt       @default(0) @map("igst_paise")
+  cessPaise              BigInt       @default(0) @map("cess_paise")
+  roundOffPaise          BigInt       @default(0) @map("round_off_paise")
+  totalPaise             BigInt       @map("total_paise")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
+  deletedAt              DateTime?    @map("deleted_at")
+  createdById            String?      @map("created_by_id") @db.Uuid
+
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project          Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking          Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  scheduleItem     DemandScheduleItem? @relation(fields: [scheduleItemId], references: [id], onDelete: Restrict)
+  gstRate          GstRate?            @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+  allocations      ReceiptAllocation[]
+  interestAccruals InterestAccrual[]
+
+  @@unique([organizationId, demandNumber], map: "demand_notes_org_number")
+  @@index([bookingId], map: "demand_notes_booking_idx")
+  @@map("demand_notes")
+}
+
+/// Simple interest, actual/365. compound is stored but rejected by formula interest.simple.actual365.v1.
+model InterestRule {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  projectId         String?   @map("project_id") @db.Uuid
+  annualRatePercent Decimal   @map("annual_rate_percent") @db.Decimal(8, 4)
+  graceDays         Int       @default(0) @map("grace_days")
+  compound          Boolean   @default(false)
+  effectiveFrom     DateTime  @map("effective_from") @db.Date
+  effectiveTo       DateTime? @map("effective_to") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project?          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  accruals     InterestAccrual[]
+
+  @@index([organizationId], map: "interest_rules_org_idx")
+  @@map("interest_rules")
+}
+
+/// Append-only. amount_paise is produced by formula_version, not typed in.
+model InterestAccrual {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  bookingId         String   @map("booking_id") @db.Uuid
+  demandNoteId      String   @map("demand_note_id") @db.Uuid
+  ruleId            String   @map("rule_id") @db.Uuid
+  fromDate          DateTime @map("from_date") @db.Date
+  toDate            DateTime @map("to_date") @db.Date
+  principalPaise    BigInt   @map("principal_paise")
+  annualRatePercent Decimal  @map("annual_rate_percent") @db.Decimal(8, 4)
+  dayCount          Int      @map("day_count")
+  amountPaise       BigInt   @map("amount_paise")
+  formulaVersion    String   @default("interest.simple.actual365.v1") @map("formula_version")
+  journalEntryId    String?  @unique @map("journal_entry_id") @db.Uuid
+  reversalOfId      String?  @unique @map("reversal_of_id") @db.Uuid
+  recordedById      String   @map("recorded_by_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking      Booking          @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  demandNote   DemandNote       @relation(fields: [demandNoteId], references: [id], onDelete: Restrict)
+  rule         InterestRule     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?    @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalOf   InterestAccrual? @relation("InterestReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversal     InterestAccrual? @relation("InterestReversal")
+  recordedBy   User             @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId], map: "interest_accruals_booking_idx")
+  @@map("interest_accruals")
+}
+
+/// amount_paise is cash received. buyer_tds_paise is TDS the buyer withheld (an entered fact, with a certificate attached).
+model Receipt {
+  id                  String        @id @default(uuid()) @db.Uuid
+  organizationId      String        @map("organization_id") @db.Uuid
+  projectId           String        @map("project_id") @db.Uuid
+  bookingId           String        @map("booking_id") @db.Uuid
+  payerPartyId        String?       @map("payer_party_id") @db.Uuid
+  bankAccountId       String?       @map("bank_account_id") @db.Uuid
+  recordedById        String        @map("recorded_by_id") @db.Uuid
+  receiptNumber       String        @map("receipt_number")
+  status              ReceiptStatus @default(DRAFT)
+  receivedOn          DateTime      @map("received_on") @db.Date
+  valueDate           DateTime?     @map("value_date") @db.Date
+  channel             MoneyChannel
+  instrumentReference String?       @map("instrument_reference")
+  amountPaise         BigInt        @map("amount_paise")
+  buyerTdsPaise       BigInt        @default(0) @map("buyer_tds_paise")
+  narration           String?
+  journalEntryId      String?       @unique @map("journal_entry_id") @db.Uuid
+  clientMutationId    String?       @unique @map("client_mutation_id")
+  rowVersion          Int           @default(1) @map("row_version")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  deletedAt           DateTime?     @map("deleted_at")
+  createdById         String?       @map("created_by_id") @db.Uuid
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking      Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  payer        Party?              @relation(fields: [payerPartyId], references: [id], onDelete: Restrict)
+  bankAccount  BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  recordedBy   User                @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  allocations  ReceiptAllocation[]
+
+  @@unique([organizationId, receiptNumber], map: "receipts_org_number")
+  @@index([bookingId], map: "receipts_booking_idx")
+  @@index([instrumentReference], map: "receipts_reference_idx")
+  @@map("receipts")
+}
+
+model ReceiptAllocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  receiptId      String   @map("receipt_id") @db.Uuid
+  demandNoteId   String?  @map("demand_note_id") @db.Uuid
+  amountPaise    BigInt   @map("amount_paise")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  receipt      Receipt      @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  demandNote   DemandNote?  @relation(fields: [demandNoteId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId], map: "receipt_allocations_receipt_idx")
+  @@index([demandNoteId], map: "receipt_allocations_demand_idx")
+  @@map("receipt_allocations")
+}
+
+/// Immutable snapshot of a statement that was issued. Live dues are computed, not stored here.
+model CustomerStatement {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  bookingId      String   @map("booking_id") @db.Uuid
+  issuedById     String   @map("issued_by_id") @db.Uuid
+  issuedOn       DateTime @map("issued_on") @db.Date
+  asOf           DateTime @map("as_of") @db.Date
+  openingPaise   BigInt   @map("opening_paise")
+  demandsPaise   BigInt   @map("demands_paise")
+  interestPaise  BigInt   @map("interest_paise")
+  receiptsPaise  BigInt   @map("receipts_paise")
+  refundsPaise   BigInt   @map("refunds_paise")
+  closingPaise   BigInt   @map("closing_paise")
+  formulaVersion String   @default("customer.ledger.v1") @map("formula_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  issuedBy     User         @relation(fields: [issuedById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId, asOf], map: "customer_statements_booking_idx")
+  @@map("customer_statements")
+}
+
+/// Construction photo. published_to_customers exposes it on the customer portal.
+model ProgressUpdate {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  projectId            String    @map("project_id") @db.Uuid
+  phaseId              String?   @map("phase_id") @db.Uuid
+  towerId              String?   @map("tower_id") @db.Uuid
+  floorId              String?   @map("floor_id") @db.Uuid
+  unitId               String?   @map("unit_id") @db.Uuid
+  recordedById         String    @map("recorded_by_id") @db.Uuid
+  takenOn              DateTime  @map("taken_on") @db.Date
+  caption              String
+  publishedToCustomers Boolean   @default(false) @map("published_to_customers")
+  clientMutationId     String?   @unique @map("client_mutation_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  phase        ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  tower        Tower?        @relation(fields: [towerId], references: [id], onDelete: Restrict)
+  floor        Floor?        @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  unit         Unit?         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  recordedBy   User          @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, takenOn], map: "progress_updates_project_idx")
+  @@map("progress_updates")
+}
+
+// ---------------------------------------------------------------------------
+// Partners and investors
+// ---------------------------------------------------------------------------
+
+model CapitalContribution {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  partnerPartyId String            @map("partner_party_id") @db.Uuid
+  contributedOn  DateTime          @map("contributed_on") @db.Date
+  instrument     CapitalInstrument
+  amountPaise    BigInt            @map("amount_paise")
+  landNote       String?           @map("land_note")
+  journalEntryId String?           @unique @map("journal_entry_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  createdById    String?           @map("created_by_id") @db.Uuid
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  partner      Party         @relation(fields: [partnerPartyId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, partnerPartyId], map: "capital_contributions_project_partner_idx")
+  @@map("capital_contributions")
+}
+
+model ProfitSharingAgreement {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  name           String
+  basis          ShareBasis
+  status         ComputationStatus @default(POSTED)
+  effectiveFrom  DateTime          @map("effective_from") @db.Date
+  effectiveTo    DateTime?         @map("effective_to") @db.Date
+  supersedesId   String?           @unique @map("supersedes_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  deletedAt      DateTime?         @map("deleted_at")
+  createdById    String?           @map("created_by_id") @db.Uuid
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project                 @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  supersedes   ProfitSharingAgreement? @relation("AgreementVersion", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy ProfitSharingAgreement? @relation("AgreementVersion")
+  rules        ProfitSharingRule[]
+  computations ShareComputation[]
+
+  @@index([projectId], map: "profit_sharing_agreements_project_idx")
+  @@map("profit_sharing_agreements")
+}
+
+model ProfitSharingRule {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  projectId          String    @map("project_id") @db.Uuid
+  agreementId        String    @map("agreement_id") @db.Uuid
+  partnerPartyId     String    @map("partner_party_id") @db.Uuid
+  priority           Int
+  sharePercent       Decimal?  @map("share_percent") @db.Decimal(8, 4)
+  hurdleRatePercent  Decimal?  @map("hurdle_rate_percent") @db.Decimal(8, 4)
+  fixedAmountPaise   BigInt?   @map("fixed_amount_paise")
+  isResidual         Boolean   @default(false) @map("is_residual")
+  participatesInLoss Boolean   @default(true) @map("participates_in_loss")
+  absorbsRounding    Boolean   @default(false) @map("absorbs_rounding")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  agreement    ProfitSharingAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  partner      Party                  @relation(fields: [partnerPartyId], references: [id], onDelete: Restrict)
+
+  @@index([agreementId], map: "profit_sharing_rules_agreement_idx")
+  @@map("profit_sharing_rules")
+}
+
+model UnitAllocation {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  projectId      String           @map("project_id") @db.Uuid
+  unitId         String           @map("unit_id") @db.Uuid
+  partnerPartyId String           @map("partner_party_id") @db.Uuid
+  sharePercent   Decimal          @default(100) @map("share_percent") @db.Decimal(8, 4)
+  reason         AllocationReason
+  effectiveFrom  DateTime         @map("effective_from") @db.Date
+  createdAt      DateTime         @default(now()) @map("created_at")
+  deletedAt      DateTime?        @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  unit         Unit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  partner      Party        @relation(fields: [partnerPartyId], references: [id], onDelete: Restrict)
+
+  @@index([unitId], map: "unit_allocations_unit_idx")
+  @@index([partnerPartyId], map: "unit_allocations_partner_idx")
+  @@map("unit_allocations")
+}
+
+model ShareComputation {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  agreementId    String            @map("agreement_id") @db.Uuid
+  computedById   String            @map("computed_by_id") @db.Uuid
+  computedAt     DateTime          @default(now()) @map("computed_at")
+  asOf           DateTime          @map("as_of") @db.Date
+  profitPaise    BigInt            @map("profit_paise")
+  formulaVersion String            @map("formula_version")
+  status         ComputationStatus @default(POSTED)
+  supersededAt   DateTime?         @map("superseded_at")
+  journalEntryId String?           @unique @map("journal_entry_id") @db.Uuid
+  notes          String?
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  agreement    ProfitSharingAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  computedBy   User                   @relation(fields: [computedById], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?          @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  entries      ShareLedgerEntry[]
+
+  @@index([projectId, computedAt], map: "share_computations_project_idx")
+  @@map("share_computations")
+}
+
+/// Append-only partner ledger. Current profit share is the latest non-superseded computation, not the sum of every run.
+model ShareLedgerEntry {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  projectId      String         @map("project_id") @db.Uuid
+  partnerPartyId String         @map("partner_party_id") @db.Uuid
+  computationId  String?        @map("computation_id") @db.Uuid
+  entryType      ShareEntryType @map("entry_type")
+  entryDate      DateTime       @map("entry_date") @db.Date
+  amountPaise    BigInt         @map("amount_paise")
+  narration      String
+  sequence       Int
+  prevHash       String         @map("prev_hash")
+  entryHash      String         @map("entry_hash")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  createdById    String?        @map("created_by_id") @db.Uuid
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  partner      Party             @relation(fields: [partnerPartyId], references: [id], onDelete: Restrict)
+  computation  ShareComputation? @relation(fields: [computationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sequence], map: "share_ledger_org_seq")
+  @@index([projectId, partnerPartyId], map: "share_ledger_partner_idx")
+  @@map("share_ledger_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Materials, procurement, stock
+// ---------------------------------------------------------------------------
+
+model MaterialCategory {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  parentId       String?   @map("parent_id") @db.Uuid
+  name           String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent       MaterialCategory?  @relation("MaterialCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     MaterialCategory[] @relation("MaterialCategoryTree")
+  materials    Material[]
+
+  @@index([organizationId], map: "material_categories_org_idx")
+  @@map("material_categories")
+}
+
+model Material {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  categoryId     String?   @map("category_id") @db.Uuid
+  gstRateId      String?   @map("gst_rate_id") @db.Uuid
+  sku            String
+  name           String
+  uom            String
+  hsnCode        String?   @map("hsn_code")
+  reorderLevel   Decimal?  @map("reorder_level") @db.Decimal(18, 4)
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  category           MaterialCategory?   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  gstRate            GstRate?            @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+  boqItems           BoqItem[]
+  indentLines        IndentLine[]
+  purchaseOrderLines PurchaseOrderLine[]
+  goodsReceiptLines  GoodsReceiptLine[]
+  vendorInvoiceLines VendorInvoiceLine[]
+  stockLedgerEntries StockLedgerEntry[]
+  materialIssueLines MaterialIssueLine[]
+
+  @@unique([organizationId, sku], map: "materials_org_sku")
+  @@map("materials")
+}
+
+model Store {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  name           String
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  goodsReceipts      GoodsReceipt[]
+  materialIssues     MaterialIssue[]
+  stockLedgerEntries StockLedgerEntry[]
+  indents            Indent[]
+
+  @@index([projectId], map: "stores_project_idx")
+  @@map("stores")
+}
+
+model Indent {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  projectId      String       @map("project_id") @db.Uuid
+  storeId        String?      @map("store_id") @db.Uuid
+  requestedById  String       @map("requested_by_id") @db.Uuid
+  indentNumber   String       @map("indent_number")
+  status         IndentStatus @default(DRAFT)
+  neededOn       DateTime?    @map("needed_on") @db.Date
+  notes          String?
+  rowVersion     Int          @default(1) @map("row_version")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+  createdById    String?      @map("created_by_id") @db.Uuid
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  store          Store?            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  requestedBy    User              @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  lines          IndentLine[]
+  quotes         VendorQuote[]
+  comparisons    QuoteComparison[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([organizationId, indentNumber], map: "indents_org_number")
+  @@index([projectId], map: "indents_project_idx")
+  @@map("indents")
+}
+
+model IndentLine {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  indentId       String    @map("indent_id") @db.Uuid
+  materialId     String?   @map("material_id") @db.Uuid
+  boqItemId      String?   @map("boq_item_id") @db.Uuid
+  description    String
+  quantity       Decimal   @db.Decimal(18, 4)
+  uom            String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  indent             Indent              @relation(fields: [indentId], references: [id], onDelete: Restrict)
+  material           Material?           @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  boqItem            BoqItem?            @relation(fields: [boqItemId], references: [id], onDelete: Restrict)
+  quoteLines         VendorQuoteLine[]
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@index([indentId], map: "indent_lines_indent_idx")
+  @@map("indent_lines")
+}
+
+model VendorQuote {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  indentId       String      @map("indent_id") @db.Uuid
+  vendorPartyId  String      @map("vendor_party_id") @db.Uuid
+  quoteNumber    String      @map("quote_number")
+  quoteDate      DateTime    @map("quote_date") @db.Date
+  validUntil     DateTime?   @map("valid_until") @db.Date
+  status         QuoteStatus @default(RECEIVED)
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  indent         Indent            @relation(fields: [indentId], references: [id], onDelete: Restrict)
+  vendor         Party             @relation(fields: [vendorPartyId], references: [id], onDelete: Restrict)
+  lines          VendorQuoteLine[]
+  comparisons    QuoteComparison[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([indentId], map: "vendor_quotes_indent_idx")
+  @@map("vendor_quotes")
+}
+
+model VendorQuoteLine {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  quoteId        String   @map("quote_id") @db.Uuid
+  indentLineId   String   @map("indent_line_id") @db.Uuid
+  quantity       Decimal  @db.Decimal(18, 4)
+  rateRupees     Decimal  @map("rate_rupees") @db.Decimal(18, 4)
+  gstRateId      String?  @map("gst_rate_id") @db.Uuid
+  amountPaise    BigInt   @map("amount_paise")
+  taxPaise       BigInt   @default(0) @map("tax_paise")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  quote        VendorQuote  @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  indentLine   IndentLine   @relation(fields: [indentLineId], references: [id], onDelete: Restrict)
+  gstRate      GstRate?     @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId], map: "vendor_quote_lines_quote_idx")
+  @@map("vendor_quote_lines")
+}
+
+/// Append-only record that a comparison happened and which quote was picked.
+model QuoteComparison {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  indentId        String   @map("indent_id") @db.Uuid
+  comparedById    String   @map("compared_by_id") @db.Uuid
+  selectedQuoteId String   @map("selected_quote_id") @db.Uuid
+  comparedAt      DateTime @default(now()) @map("compared_at")
+  reason          String
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  indent        Indent       @relation(fields: [indentId], references: [id], onDelete: Restrict)
+  comparedBy    User         @relation(fields: [comparedById], references: [id], onDelete: Restrict)
+  selectedQuote VendorQuote  @relation(fields: [selectedQuoteId], references: [id], onDelete: Restrict)
+
+  @@index([indentId], map: "quote_comparisons_indent_idx")
+  @@map("quote_comparisons")
+}
+
+model PurchaseOrder {
+  id                String              @id @default(uuid()) @db.Uuid
+  organizationId    String              @map("organization_id") @db.Uuid
+  projectId         String              @map("project_id") @db.Uuid
+  vendorPartyId     String              @map("vendor_party_id") @db.Uuid
+  quoteId           String?             @map("quote_id") @db.Uuid
+  indentId          String?             @map("indent_id") @db.Uuid
+  approvalRequestId String?             @map("approval_request_id") @db.Uuid
+  poNumber          String              @map("po_number")
+  poDate            DateTime            @map("po_date") @db.Date
+  status            PurchaseOrderStatus @default(DRAFT)
+  expectedOn        DateTime?           @map("expected_on") @db.Date
+  notes             String?
+  supersedesId      String?             @unique @map("supersedes_id") @db.Uuid
+  rowVersion        Int                 @default(1) @map("row_version")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+  createdById       String?             @map("created_by_id") @db.Uuid
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  vendor          Party               @relation(fields: [vendorPartyId], references: [id], onDelete: Restrict)
+  quote           VendorQuote?        @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  indent          Indent?             @relation(fields: [indentId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  supersedes      PurchaseOrder?      @relation("PoRevision", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy    PurchaseOrder?      @relation("PoRevision")
+  lines           PurchaseOrderLine[]
+  goodsReceipts   GoodsReceipt[]
+  vendorInvoices  VendorInvoice[]
+  threeWayMatches ThreeWayMatch[]
+
+  @@unique([organizationId, poNumber], map: "purchase_orders_org_number")
+  @@index([projectId], map: "purchase_orders_project_idx")
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  purchaseOrderId String    @map("purchase_order_id") @db.Uuid
+  indentLineId    String?   @map("indent_line_id") @db.Uuid
+  materialId      String    @map("material_id") @db.Uuid
+  description     String
+  quantity        Decimal   @db.Decimal(18, 4)
+  rateRupees      Decimal   @map("rate_rupees") @db.Decimal(18, 4)
+  gstRateId       String?   @map("gst_rate_id") @db.Uuid
+  amountPaise     BigInt    @map("amount_paise")
+  taxPaise        BigInt    @default(0) @map("tax_paise")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  purchaseOrder      PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  indentLine         IndentLine?         @relation(fields: [indentLineId], references: [id], onDelete: Restrict)
+  material           Material            @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  gstRate            GstRate?            @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+  goodsReceiptLines  GoodsReceiptLine[]
+  vendorInvoiceLines VendorInvoiceLine[]
+  threeWayMatchLines ThreeWayMatchLine[]
+
+  @@index([purchaseOrderId], map: "purchase_order_lines_po_idx")
+  @@map("purchase_order_lines")
+}
+
+model GoodsReceipt {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  storeId          String    @map("store_id") @db.Uuid
+  purchaseOrderId  String?   @map("purchase_order_id") @db.Uuid
+  vendorPartyId    String    @map("vendor_party_id") @db.Uuid
+  receivedById     String    @map("received_by_id") @db.Uuid
+  grnNumber        String    @map("grn_number")
+  status           GrnStatus @default(DRAFT)
+  receivedOn       DateTime  @map("received_on") @db.Date
+  notes            String?
+  clientMutationId String?   @unique @map("client_mutation_id")
+  rowVersion       Int       @default(1) @map("row_version")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+  createdById      String?   @map("created_by_id") @db.Uuid
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  store         Store              @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  vendor        Party              @relation(fields: [vendorPartyId], references: [id], onDelete: Restrict)
+  receivedBy    User               @relation(fields: [receivedById], references: [id], onDelete: Restrict)
+  lines         GoodsReceiptLine[]
+
+  @@unique([organizationId, grnNumber], map: "goods_receipts_org_number")
+  @@index([projectId], map: "goods_receipts_project_idx")
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  goodsReceiptId      String   @map("goods_receipt_id") @db.Uuid
+  purchaseOrderLineId String?  @map("purchase_order_line_id") @db.Uuid
+  materialId          String   @map("material_id") @db.Uuid
+  receivedQuantity    Decimal  @map("received_quantity") @db.Decimal(18, 4)
+  acceptedQuantity    Decimal  @map("accepted_quantity") @db.Decimal(18, 4)
+  rejectedQuantity    Decimal  @default(0) @map("rejected_quantity") @db.Decimal(18, 4)
+  remarks             String?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  goodsReceipt       GoodsReceipt        @relation(fields: [goodsReceiptId], references: [id], onDelete: Restrict)
+  purchaseOrderLine  PurchaseOrderLine?  @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
+  material           Material            @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  threeWayMatchLines ThreeWayMatchLine[]
+
+  @@index([goodsReceiptId], map: "goods_receipt_lines_grn_idx")
+  @@map("goods_receipt_lines")
+}
+
+model VendorInvoice {
+  id                      String        @id @default(uuid()) @db.Uuid
+  organizationId          String        @map("organization_id") @db.Uuid
+  projectId               String?       @map("project_id") @db.Uuid
+  vendorPartyId           String        @map("vendor_party_id") @db.Uuid
+  purchaseOrderId         String?       @map("purchase_order_id") @db.Uuid
+  approvalRequestId       String?       @map("approval_request_id") @db.Uuid
+  tdsSectionId            String?       @map("tds_section_id") @db.Uuid
+  journalEntryId          String?       @unique @map("journal_entry_id") @db.Uuid
+  invoiceNumber           String        @map("invoice_number")
+  normalizedInvoiceNumber String        @map("normalized_invoice_number")
+  fingerprint             String
+  invoiceDate             DateTime      @map("invoice_date") @db.Date
+  status                  InvoiceStatus @default(DRAFT)
+  source                  InvoiceSource @default(INTERNAL)
+  expectsGoods            Boolean       @default(true) @map("expects_goods")
+  supplyType              SupplyType    @map("supply_type")
+  placeOfSupplyStateCode  String        @map("place_of_supply_state_code")
+  taxablePaise            BigInt        @map("taxable_paise")
+  cgstPaise               BigInt        @default(0) @map("cgst_paise")
+  sgstPaise               BigInt        @default(0) @map("sgst_paise")
+  igstPaise               BigInt        @default(0) @map("igst_paise")
+  cessPaise               BigInt        @default(0) @map("cess_paise")
+  roundOffPaise           BigInt        @default(0) @map("round_off_paise")
+  totalPaise              BigInt        @map("total_paise")
+  tdsPaise                BigInt        @default(0) @map("tds_paise")
+  netPayablePaise         BigInt        @map("net_payable_paise")
+  notes                   String?
+  rowVersion              Int           @default(1) @map("row_version")
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+  deletedAt               DateTime?     @map("deleted_at")
+  createdById             String?       @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  vendor             Party               @relation(fields: [vendorPartyId], references: [id], onDelete: Restrict)
+  purchaseOrder      PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  approvalRequest    ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  tdsSection         TdsSection?         @relation(fields: [tdsSectionId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  lines              VendorInvoiceLine[]
+  match              ThreeWayMatch?
+  paymentAllocations PaymentAllocation[]
+
+  @@unique([organizationId, vendorPartyId, invoiceNumber], map: "vendor_invoice_org_party_no")
+  @@index([organizationId, fingerprint], map: "vendor_invoices_fingerprint_idx")
+  @@index([projectId], map: "vendor_invoices_project_idx")
+  @@map("vendor_invoices")
+}
+
+model VendorInvoiceLine {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  invoiceId           String   @map("invoice_id") @db.Uuid
+  purchaseOrderLineId String?  @map("purchase_order_line_id") @db.Uuid
+  materialId          String?  @map("material_id") @db.Uuid
+  gstRateId           String?  @map("gst_rate_id") @db.Uuid
+  description         String
+  quantity            Decimal  @db.Decimal(18, 4)
+  rateRupees          Decimal  @map("rate_rupees") @db.Decimal(18, 4)
+  taxablePaise        BigInt   @map("taxable_paise")
+  cgstPercent         Decimal  @default(0) @map("cgst_percent") @db.Decimal(8, 4)
+  sgstPercent         Decimal  @default(0) @map("sgst_percent") @db.Decimal(8, 4)
+  igstPercent         Decimal  @default(0) @map("igst_percent") @db.Decimal(8, 4)
+  cessPercent         Decimal  @default(0) @map("cess_percent") @db.Decimal(8, 4)
+  cgstPaise           BigInt   @default(0) @map("cgst_paise")
+  sgstPaise           BigInt   @default(0) @map("sgst_paise")
+  igstPaise           BigInt   @default(0) @map("igst_paise")
+  cessPaise           BigInt   @default(0) @map("cess_paise")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice           VendorInvoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  purchaseOrderLine PurchaseOrderLine?  @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Restrict)
+  material          Material?           @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  gstRate           GstRate?            @relation(fields: [gstRateId], references: [id], onDelete: Restrict)
+  matchLines        ThreeWayMatchLine[]
+
+  @@index([invoiceId], map: "vendor_invoice_lines_invoice_idx")
+  @@map("vendor_invoice_lines")
+}
+
+model ThreeWayMatch {
+  id                String      @id @default(uuid()) @db.Uuid
+  organizationId    String      @map("organization_id") @db.Uuid
+  vendorInvoiceId   String      @unique @map("vendor_invoice_id") @db.Uuid
+  purchaseOrderId   String?     @map("purchase_order_id") @db.Uuid
+  status            MatchStatus
+  rateVariancePaise BigInt      @default(0) @map("rate_variance_paise")
+  notes             String?
+  matchedById       String?     @map("matched_by_id") @db.Uuid
+  matchedAt         DateTime    @default(now()) @map("matched_at")
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  vendorInvoice VendorInvoice       @relation(fields: [vendorInvoiceId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  matchedBy     User?               @relation(fields: [matchedById], references: [id], onDelete: Restrict)
+  lines         ThreeWayMatchLine[]
+
+  @@index([organizationId], map: "three_way_matches_org_idx")
+  @@map("three_way_matches")
+}
+
+model ThreeWayMatchLine {
+  id                String      @id @default(uuid()) @db.Uuid
+  organizationId    String      @map("organization_id") @db.Uuid
+  matchId           String      @map("match_id") @db.Uuid
+  invoiceLineId     String      @map("invoice_line_id") @db.Uuid
+  poLineId          String?     @map("po_line_id") @db.Uuid
+  grnLineId         String?     @map("grn_line_id") @db.Uuid
+  invoiceQty        Decimal     @map("invoice_qty") @db.Decimal(18, 4)
+  poQty             Decimal?    @map("po_qty") @db.Decimal(18, 4)
+  grnQty            Decimal?    @map("grn_qty") @db.Decimal(18, 4)
+  invoiceRateRupees Decimal?    @map("invoice_rate_rupees") @db.Decimal(18, 4)
+  poRateRupees      Decimal?    @map("po_rate_rupees") @db.Decimal(18, 4)
+  status            MatchStatus
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  match        ThreeWayMatch      @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  invoiceLine  VendorInvoiceLine  @relation(fields: [invoiceLineId], references: [id], onDelete: Restrict)
+  poLine       PurchaseOrderLine? @relation(fields: [poLineId], references: [id], onDelete: Restrict)
+  grnLine      GoodsReceiptLine?  @relation(fields: [grnLineId], references: [id], onDelete: Restrict)
+
+  @@index([matchId], map: "three_way_match_lines_match_idx")
+  @@map("three_way_match_lines")
+}
+
+/// Append-only stock movement. quantity is signed: in positive, out negative.
+/// average_rate_rupees is the weighted-average rate after this movement.
+model StockLedgerEntry {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  projectId         String          @map("project_id") @db.Uuid
+  storeId           String          @map("store_id") @db.Uuid
+  materialId        String          @map("material_id") @db.Uuid
+  movement          StockMovement
+  quantity          Decimal         @db.Decimal(18, 4)
+  rateRupees        Decimal?        @map("rate_rupees") @db.Decimal(18, 4)
+  valuePaise        BigInt?         @map("value_paise")
+  averageRateRupees Decimal?        @map("average_rate_rupees") @db.Decimal(18, 6)
+  valuationMethod   ValuationMethod @default(WEIGHTED_AVERAGE) @map("valuation_method")
+  transferGroupId   String?         @map("transfer_group_id") @db.Uuid
+  sourceType        RecordRef       @map("source_type")
+  sourceId          String          @map("source_id") @db.Uuid
+  approvalRequestId String?         @map("approval_request_id") @db.Uuid
+  occurredOn        DateTime        @map("occurred_on") @db.Date
+  sequence          Int
+  prevHash          String          @map("prev_hash")
+  entryHash         String          @map("entry_hash")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  createdById       String?         @map("created_by_id") @db.Uuid
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  material        Material         @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sequence], map: "stock_ledger_org_seq")
+  @@index([storeId, materialId], map: "stock_ledger_store_material_idx")
+  @@map("stock_ledger_entries")
+}
+
+model MaterialIssue {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  storeId          String    @map("store_id") @db.Uuid
+  workOrderId      String?   @map("work_order_id") @db.Uuid
+  issuedById       String    @map("issued_by_id") @db.Uuid
+  issuedOn         DateTime  @map("issued_on") @db.Date
+  notes            String?
+  clientMutationId String?   @unique @map("client_mutation_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  store        Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder?          @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  issuedBy     User                @relation(fields: [issuedById], references: [id], onDelete: Restrict)
+  lines        MaterialIssueLine[]
+
+  @@index([projectId, issuedOn], map: "material_issues_project_idx")
+  @@map("material_issues")
+}
+
+model MaterialIssueLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  issueId         String   @map("issue_id") @db.Uuid
+  materialId      String   @map("material_id") @db.Uuid
+  boqItemId       String?  @map("boq_item_id") @db.Uuid
+  quantity        Decimal  @db.Decimal(18, 4)
+  wastageQuantity Decimal  @default(0) @map("wastage_quantity") @db.Decimal(18, 4)
+  wastageReason   String?  @map("wastage_reason")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  issue        MaterialIssue @relation(fields: [issueId], references: [id], onDelete: Restrict)
+  material     Material      @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  boqItem      BoqItem?      @relation(fields: [boqItemId], references: [id], onDelete: Restrict)
+
+  @@index([issueId], map: "material_issue_lines_issue_idx")
+  @@map("material_issue_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Contractors and labour
+// ---------------------------------------------------------------------------
+
+model Worker {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  contractorPartyId String?   @map("contractor_party_id") @db.Uuid
+  name              String
+  skill             String?
+  phoneE164         String?   @map("phone_e164")
+  dailyWagePaise    BigInt?   @map("daily_wage_paise")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contractor   Party?             @relation(fields: [contractorPartyId], references: [id], onDelete: Restrict)
+  attendance   LabourAttendance[]
+
+  @@index([organizationId], map: "workers_org_idx")
+  @@map("workers")
+}
+
+model LabourAttendance {
+  id               String           @id @default(uuid()) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  workerId         String           @map("worker_id") @db.Uuid
+  recordedById     String           @map("recorded_by_id") @db.Uuid
+  workDate         DateTime         @map("work_date") @db.Date
+  status           AttendanceStatus
+  overtimeHours    Decimal          @default(0) @map("overtime_hours") @db.Decimal(8, 2)
+  dailyWagePaise   BigInt           @map("daily_wage_paise")
+  wagePaise        BigInt           @map("wage_paise")
+  formulaVersion   String           @default("attendance.wage.v1") @map("formula_version")
+  notes            String?
+  clientMutationId String?          @unique @map("client_mutation_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  deletedAt        DateTime?        @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  worker       Worker       @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  recordedBy   User         @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@unique([workerId, workDate], map: "labour_attendance_worker_date")
+  @@index([projectId, workDate], map: "labour_attendance_project_idx")
+  @@map("labour_attendances")
+}
+
+model WorkOrder {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  projectId         String          @map("project_id") @db.Uuid
+  contractorPartyId String          @map("contractor_party_id") @db.Uuid
+  tdsSectionId      String?         @map("tds_section_id") @db.Uuid
+  approvalRequestId String?         @map("approval_request_id") @db.Uuid
+  woNumber          String          @map("wo_number")
+  title             String
+  status            WorkOrderStatus @default(DRAFT)
+  retentionPercent  Decimal         @map("retention_percent") @db.Decimal(8, 4)
+  startOn           DateTime?       @map("start_on") @db.Date
+  endOn             DateTime?       @map("end_on") @db.Date
+  rowVersion        Int             @default(1) @map("row_version")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  deletedAt         DateTime?       @map("deleted_at")
+  createdById       String?         @map("created_by_id") @db.Uuid
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  contractor      Party               @relation(fields: [contractorPartyId], references: [id], onDelete: Restrict)
+  tdsSection      TdsSection?         @relation(fields: [tdsSectionId], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  lines           WorkOrderLine[]
+  raBills         RaBill[]
+  advances        ContractorAdvance[]
+  materialIssues  MaterialIssue[]
+
+  @@unique([organizationId, woNumber], map: "work_orders_org_number")
+  @@index([projectId], map: "work_orders_project_idx")
+  @@map("work_orders")
+}
+
+model WorkOrderLine {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  workOrderId    String    @map("work_order_id") @db.Uuid
+  boqItemId      String?   @map("boq_item_id") @db.Uuid
+  description    String
+  uom            String
+  quantity       Decimal   @db.Decimal(18, 4)
+  rateRupees     Decimal   @map("rate_rupees") @db.Decimal(18, 4)
+  amountPaise    BigInt    @map("amount_paise")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workOrder    WorkOrder          @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  boqItem      BoqItem?           @relation(fields: [boqItemId], references: [id], onDelete: Restrict)
+  measurements MeasurementEntry[]
+  raBillLines  RaBillLine[]
+
+  @@index([workOrderId], map: "work_order_lines_wo_idx")
+  @@map("work_order_lines")
+}
+
+model MeasurementEntry {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @map("organization_id") @db.Uuid
+  projectId        String            @map("project_id") @db.Uuid
+  workOrderLineId  String            @map("work_order_line_id") @db.Uuid
+  measuredById     String            @map("measured_by_id") @db.Uuid
+  checkedById      String?           @map("checked_by_id") @db.Uuid
+  status           MeasurementStatus @default(DRAFT)
+  measuredOn       DateTime          @map("measured_on") @db.Date
+  mbBook           String            @map("mb_book")
+  mbPage           String            @map("mb_page")
+  locationNote     String            @map("location_note")
+  quantity         Decimal           @db.Decimal(18, 4)
+  uom              String
+  remarks          String?
+  clientMutationId String?           @unique @map("client_mutation_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  deletedAt        DateTime?         @map("deleted_at")
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  workOrderLine WorkOrderLine @relation(fields: [workOrderLineId], references: [id], onDelete: Restrict)
+  measuredBy    User          @relation("MeasuredBy", fields: [measuredById], references: [id], onDelete: Restrict)
+  checkedBy     User?         @relation("CheckedBy", fields: [checkedById], references: [id], onDelete: Restrict)
+  raBillLines   RaBillLine[]
+
+  @@index([projectId, measuredOn], map: "measurement_entries_project_idx")
+  @@index([workOrderLineId], map: "measurement_entries_line_idx")
+  @@map("measurement_entries")
+}
+
+model RaBill {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  projectId              String       @map("project_id") @db.Uuid
+  workOrderId            String       @map("work_order_id") @db.Uuid
+  approvalRequestId      String?      @map("approval_request_id") @db.Uuid
+  tdsSectionId           String?      @map("tds_section_id") @db.Uuid
+  journalEntryId         String?      @unique @map("journal_entry_id") @db.Uuid
+  billNumber             String       @map("bill_number")
+  status                 RaBillStatus @default(DRAFT)
+  periodStart            DateTime     @map("period_start") @db.Date
+  periodEnd              DateTime     @map("period_end") @db.Date
+  supplyType             SupplyType   @map("supply_type")
+  placeOfSupplyStateCode String       @map("place_of_supply_state_code")
+  grossPaise             BigInt       @map("gross_paise")
+  cgstPaise              BigInt       @default(0) @map("cgst_paise")
+  sgstPaise              BigInt       @default(0) @map("sgst_paise")
+  igstPaise              BigInt       @default(0) @map("igst_paise")
+  cessPaise              BigInt       @default(0) @map("cess_paise")
+  roundOffPaise          BigInt       @default(0) @map("round_off_paise")
+  retentionPaise         BigInt       @default(0) @map("retention_paise")
+  advanceRecoveryPaise   BigInt       @default(0) @map("advance_recovery_paise")
+  tdsPaise               BigInt       @default(0) @map("tds_paise")
+  otherDeductionPaise    BigInt       @default(0) @map("other_deduction_paise")
+  netPayablePaise        BigInt       @map("net_payable_paise")
+  rowVersion             Int          @default(1) @map("row_version")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
+  deletedAt              DateTime?    @map("deleted_at")
+  createdById            String?      @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  workOrder          WorkOrder           @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  approvalRequest    ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  tdsSection         TdsSection?         @relation(fields: [tdsSectionId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  lines              RaBillLine[]
+  retentionEntries   RetentionEntry[]
+  advanceRecoveries  AdvanceRecovery[]
+  paymentAllocations PaymentAllocation[]
+
+  @@unique([organizationId, billNumber], map: "ra_bills_org_number")
+  @@index([projectId], map: "ra_bills_project_idx")
+  @@map("ra_bills")
+}
+
+model RaBillLine {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  raBillId           String   @map("ra_bill_id") @db.Uuid
+  workOrderLineId    String   @map("work_order_line_id") @db.Uuid
+  measurementEntryId String?  @map("measurement_entry_id") @db.Uuid
+  quantity           Decimal  @db.Decimal(18, 4)
+  rateRupees         Decimal  @map("rate_rupees") @db.Decimal(18, 4)
+  amountPaise        BigInt   @map("amount_paise")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  raBill           RaBill            @relation(fields: [raBillId], references: [id], onDelete: Restrict)
+  workOrderLine    WorkOrderLine     @relation(fields: [workOrderLineId], references: [id], onDelete: Restrict)
+  measurementEntry MeasurementEntry? @relation(fields: [measurementEntryId], references: [id], onDelete: Restrict)
+
+  @@index([raBillId], map: "ra_bill_lines_bill_idx")
+  @@map("ra_bill_lines")
+}
+
+/// Append-only retention hold or release.
+model RetentionEntry {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  projectId         String          @map("project_id") @db.Uuid
+  contractorPartyId String          @map("contractor_party_id") @db.Uuid
+  raBillId          String?         @map("ra_bill_id") @db.Uuid
+  journalEntryId    String?         @unique @map("journal_entry_id") @db.Uuid
+  action            RetentionAction
+  amountPaise       BigInt          @map("amount_paise")
+  entryDate         DateTime        @map("entry_date") @db.Date
+  createdAt         DateTime        @default(now()) @map("created_at")
+  createdById       String?         @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  contractor         Party               @relation(fields: [contractorPartyId], references: [id], onDelete: Restrict)
+  raBill             RaBill?             @relation(fields: [raBillId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  paymentAllocations PaymentAllocation[]
+
+  @@index([projectId, contractorPartyId], map: "retention_entries_project_party_idx")
+  @@map("retention_entries")
+}
+
+model ContractorAdvance {
+  id                String        @id @default(uuid()) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  projectId         String        @map("project_id") @db.Uuid
+  workOrderId       String        @map("work_order_id") @db.Uuid
+  contractorPartyId String        @map("contractor_party_id") @db.Uuid
+  journalEntryId    String?       @unique @map("journal_entry_id") @db.Uuid
+  status            AdvanceStatus @default(OPEN)
+  advancedOn        DateTime      @map("advanced_on") @db.Date
+  amountPaise       BigInt        @map("amount_paise")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  createdById       String?       @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  workOrder          WorkOrder           @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  contractor         Party               @relation(fields: [contractorPartyId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  recoveries         AdvanceRecovery[]
+  paymentAllocations PaymentAllocation[]
+
+  @@index([projectId], map: "contractor_advances_project_idx")
+  @@map("contractor_advances")
+}
+
+model AdvanceRecovery {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  advanceId      String   @map("advance_id") @db.Uuid
+  raBillId       String   @map("ra_bill_id") @db.Uuid
+  journalEntryId String?  @unique @map("journal_entry_id") @db.Uuid
+  recoveredOn    DateTime @map("recovered_on") @db.Date
+  amountPaise    BigInt   @map("amount_paise")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdById    String?  @map("created_by_id") @db.Uuid
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  advance      ContractorAdvance @relation(fields: [advanceId], references: [id], onDelete: Restrict)
+  raBill       RaBill            @relation(fields: [raBillId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?     @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  @@index([advanceId], map: "advance_recoveries_advance_idx")
+  @@map("advance_recoveries")
+}
+
+// ---------------------------------------------------------------------------
+// Finance
+// ---------------------------------------------------------------------------
+
+model GlAccount {
+  id                 String        @id @default(uuid()) @db.Uuid
+  organizationId     String        @map("organization_id") @db.Uuid
+  parentId           String?       @map("parent_id") @db.Uuid
+  code               String
+  name               String
+  accountType        AccountType   @map("account_type")
+  normalBalance      NormalBalance @map("normal_balance")
+  isGroup            Boolean       @default(false) @map("is_group")
+  isActive           Boolean       @default(true) @map("is_active")
+  requiresProject    Boolean       @default(false) @map("requires_project")
+  requiresCostCentre Boolean       @default(false) @map("requires_cost_centre")
+  rowVersion         Int           @default(1) @map("row_version")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  deletedAt          DateTime?     @map("deleted_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent          GlAccount?       @relation("GlAccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children        GlAccount[]      @relation("GlAccountTree")
+  journalLines    JournalLine[]
+  bankAccount     BankAccount?
+  budgetLines     BudgetLine[]
+  loans           Loan[]
+  tallyLedgerMaps TallyLedgerMap[]
+
+  @@unique([organizationId, code], map: "gl_accounts_org_code")
+  @@map("gl_accounts")
+}
+
+model JournalEntry {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  periodId       String        @map("period_id") @db.Uuid
+  postedById     String?       @map("posted_by_id") @db.Uuid
+  entryNumber    String        @map("entry_number")
+  entryDate      DateTime      @map("entry_date") @db.Date
+  narration      String
+  source         JournalSource
+  sourceId       String?       @map("source_id") @db.Uuid
+  status         JournalStatus @default(DRAFT)
+  reversalOfId   String?       @unique @map("reversal_of_id") @db.Uuid
+  sequence       Int?
+  prevHash       String?       @map("prev_hash")
+  entryHash      String?       @map("entry_hash")
+  idempotencyKey String?       @unique @map("idempotency_key")
+  postedAt       DateTime?     @map("posted_at")
+  rowVersion     Int           @default(1) @map("row_version")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+  createdById    String?       @map("created_by_id") @db.Uuid
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  period              AccountingPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  postedBy            User?                @relation(fields: [postedById], references: [id], onDelete: Restrict)
+  reversalOf          JournalEntry?        @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy          JournalEntry?        @relation("JournalReversal")
+  lines               JournalLine[]
+  receipt             Receipt?
+  payment             Payment?
+  vendorInvoice       VendorInvoice?
+  raBill              RaBill?
+  interestAccrual     InterestAccrual?
+  loanInterestAccrual LoanInterestAccrual?
+  loanTransaction     LoanTransaction?
+  capitalContribution CapitalContribution?
+  retentionEntry      RetentionEntry?
+  contractorAdvance   ContractorAdvance?
+  advanceRecovery     AdvanceRecovery?
+  bookingCancellation BookingCancellation?
+  bookingTransfer     BookingTransfer?
+  shareComputation    ShareComputation?
+
+  @@unique([organizationId, entryNumber], map: "journal_entries_org_number")
+  @@unique([organizationId, sequence], map: "journal_entries_org_seq")
+  @@index([periodId], map: "journal_entries_period_idx")
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  entryId        String  @map("entry_id") @db.Uuid
+  glAccountId    String  @map("gl_account_id") @db.Uuid
+  lineNumber     Int     @map("line_number")
+  debitPaise     BigInt  @default(0) @map("debit_paise")
+  creditPaise    BigInt  @default(0) @map("credit_paise")
+  projectId      String? @map("project_id") @db.Uuid
+  costCentreId   String? @map("cost_centre_id") @db.Uuid
+  unitId         String? @map("unit_id") @db.Uuid
+  partyId        String? @map("party_id") @db.Uuid
+  narration      String?
+
+  organization          Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  entry                 JournalEntry          @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  glAccount             GlAccount             @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  project               Project?              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  costCentre            CostCentre?           @relation(fields: [costCentreId], references: [id], onDelete: Restrict)
+  unit                  Unit?                 @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  party                 Party?                @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  reconciliationMatches ReconciliationMatch[]
+
+  @@unique([entryId, lineNumber], map: "journal_lines_entry_line")
+  @@index([glAccountId], map: "journal_lines_account_idx")
+  @@index([projectId], map: "journal_lines_project_idx")
+  @@index([partyId], map: "journal_lines_party_idx")
+  @@index([unitId], map: "journal_lines_unit_idx")
+  @@map("journal_lines")
+}
+
+model BankAccount {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  glAccountId    String    @unique @map("gl_account_id") @db.Uuid
+  displayName    String    @map("display_name")
+  bankName       String?   @map("bank_name")
+  accountNumber  String?   @map("account_number")
+  ifsc           String?
+  isCash         Boolean   @default(false) @map("is_cash")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  glAccount        GlAccount             @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  statementImports BankStatementImport[]
+  statementLines   BankStatementLine[]
+  receipts         Receipt[]
+  payments         Payment[]
+
+  @@index([organizationId], map: "bank_accounts_org_idx")
+  @@map("bank_accounts")
+}
+
+model BankStatementImport {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  bankAccountId  String   @map("bank_account_id") @db.Uuid
+  importBatchId  String?  @map("import_batch_id") @db.Uuid
+  documentId     String?  @map("document_id") @db.Uuid
+  importedById   String   @map("imported_by_id") @db.Uuid
+  sourceFileName String   @map("source_file_name")
+  importedAt     DateTime @default(now()) @map("imported_at")
+  rowCount       Int      @default(0) @map("row_count")
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  bankAccount  BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  importBatch  ImportBatch?        @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  document     Document?           @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  importedBy   User                @relation(fields: [importedById], references: [id], onDelete: Restrict)
+  lines        BankStatementLine[]
+
+  @@index([bankAccountId], map: "bank_statement_imports_account_idx")
+  @@map("bank_statement_imports")
+}
+
+model BankStatementLine {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  importId          String          @map("import_id") @db.Uuid
+  bankAccountId     String          @map("bank_account_id") @db.Uuid
+  lineNumber        Int             @map("line_number")
+  txnDate           DateTime        @map("txn_date") @db.Date
+  valueDate         DateTime?       @map("value_date") @db.Date
+  signedAmountPaise BigInt          @map("signed_amount_paise")
+  narration         String
+  reference         String?
+  balancePaise      BigInt?         @map("balance_paise")
+  fingerprint       String
+  matchStatus       BankMatchStatus @default(UNMATCHED) @map("match_status")
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  import       BankStatementImport   @relation(fields: [importId], references: [id], onDelete: Restrict)
+  bankAccount  BankAccount           @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  matches      ReconciliationMatch[]
+
+  @@unique([bankAccountId, fingerprint], map: "bank_statement_lines_fingerprint")
+  @@index([importId], map: "bank_statement_lines_import_idx")
+  @@map("bank_statement_lines")
+}
+
+model ReconciliationMatch {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  statementLineId String    @map("statement_line_id") @db.Uuid
+  journalLineId   String    @map("journal_line_id") @db.Uuid
+  matchedById     String    @map("matched_by_id") @db.Uuid
+  amountPaise     BigInt    @map("amount_paise")
+  matchedAt       DateTime  @default(now()) @map("matched_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  statementLine BankStatementLine @relation(fields: [statementLineId], references: [id], onDelete: Restrict)
+  journalLine   JournalLine       @relation(fields: [journalLineId], references: [id], onDelete: Restrict)
+  matchedBy     User              @relation(fields: [matchedById], references: [id], onDelete: Restrict)
+
+  @@index([statementLineId], map: "reconciliation_matches_line_idx")
+  @@index([journalLineId], map: "reconciliation_matches_journal_idx")
+  @@map("reconciliation_matches")
+}
+
+model Budget {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  projectId      String       @map("project_id") @db.Uuid
+  name           String
+  status         BudgetStatus @default(DRAFT)
+  version        Int          @default(1)
+  supersedesId   String?      @unique @map("supersedes_id") @db.Uuid
+  approvedAt     DateTime?    @map("approved_at")
+  rowVersion     Int          @default(1) @map("row_version")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+  createdById    String?      @map("created_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  supersedes   Budget?      @relation("BudgetVersion", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy Budget?      @relation("BudgetVersion")
+  lines        BudgetLine[]
+
+  @@index([projectId, status], map: "budgets_project_status_idx")
+  @@map("budgets")
+}
+
+model BudgetLine {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  budgetId       String    @map("budget_id") @db.Uuid
+  costCentreId   String?   @map("cost_centre_id") @db.Uuid
+  glAccountId    String?   @map("gl_account_id") @db.Uuid
+  boqItemId      String?   @map("boq_item_id") @db.Uuid
+  amountPaise    BigInt    @map("amount_paise")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  budget       Budget       @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  costCentre   CostCentre?  @relation(fields: [costCentreId], references: [id], onDelete: Restrict)
+  glAccount    GlAccount?   @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  boqItem      BoqItem?     @relation(fields: [boqItemId], references: [id], onDelete: Restrict)
+
+  @@index([budgetId], map: "budget_lines_budget_idx")
+  @@map("budget_lines")
+}
+
+model Loan {
+  id                String             @id @default(uuid()) @db.Uuid
+  organizationId    String             @map("organization_id") @db.Uuid
+  projectId         String             @map("project_id") @db.Uuid
+  lenderPartyId     String             @map("lender_party_id") @db.Uuid
+  glAccountId       String?            @map("gl_account_id") @db.Uuid
+  name              String
+  kind              LoanKind
+  status            LoanStatus         @default(DRAFT)
+  repaymentStyle    LoanRepaymentStyle @map("repayment_style")
+  sanctionedPaise   BigInt             @map("sanctioned_paise")
+  annualRatePercent Decimal            @map("annual_rate_percent") @db.Decimal(8, 4)
+  tenureMonths      Int?               @map("tenure_months")
+  startsOn          DateTime?          @map("starts_on") @db.Date
+  formulaVersion    String             @default("emi.reducing.monthly.v1") @map("formula_version")
+  rowVersion        Int                @default(1) @map("row_version")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+  createdById       String?            @map("created_by_id") @db.Uuid
+
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  lender           Party                 @relation(fields: [lenderPartyId], references: [id], onDelete: Restrict)
+  glAccount        GlAccount?            @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  schedules        EmiSchedule[]
+  transactions     LoanTransaction[]
+  interestAccruals LoanInterestAccrual[]
+
+  @@index([projectId], map: "loans_project_idx")
+  @@map("loans")
+}
+
+model LoanInterestAccrual {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  loanId            String   @map("loan_id") @db.Uuid
+  recordedById      String   @map("recorded_by_id") @db.Uuid
+  fromDate          DateTime @map("from_date") @db.Date
+  toDate            DateTime @map("to_date") @db.Date
+  principalPaise    BigInt   @map("principal_paise")
+  annualRatePercent Decimal  @map("annual_rate_percent") @db.Decimal(8, 4)
+  dayCount          Int      @map("day_count")
+  amountPaise       BigInt   @map("amount_paise")
+  formulaVersion    String   @default("loan.simple.actual365.v1") @map("formula_version")
+  journalEntryId    String?  @unique @map("journal_entry_id") @db.Uuid
+  reversalOfId      String?  @unique @map("reversal_of_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  loan         Loan                 @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  recordedBy   User                 @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?        @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalOf   LoanInterestAccrual? @relation("LoanInterestReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversal     LoanInterestAccrual? @relation("LoanInterestReversal")
+
+  @@index([loanId], map: "loan_interest_accruals_loan_idx")
+  @@map("loan_interest_accruals")
+}
+
+model LoanTransaction {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  loanId         String      @map("loan_id") @db.Uuid
+  journalEntryId String?     @unique @map("journal_entry_id") @db.Uuid
+  txnType        LoanTxnType @map("txn_type")
+  txnDate        DateTime    @map("txn_date") @db.Date
+  principalPaise BigInt      @default(0) @map("principal_paise")
+  interestPaise  BigInt      @default(0) @map("interest_paise")
+  feePaise       BigInt      @default(0) @map("fee_paise")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  createdById    String?     @map("created_by_id") @db.Uuid
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  loan               Loan                @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  journalEntry       JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  emiLines           EmiScheduleLine[]
+  paymentAllocations PaymentAllocation[]
+
+  @@index([loanId, txnDate], map: "loan_transactions_loan_idx")
+  @@map("loan_transactions")
+}
+
+model EmiSchedule {
+  id                  String            @id @default(uuid()) @db.Uuid
+  organizationId      String            @map("organization_id") @db.Uuid
+  loanId              String            @map("loan_id") @db.Uuid
+  version             Int
+  generatedAt         DateTime          @default(now()) @map("generated_at")
+  formulaVersion      String            @default("emi.reducing.monthly.v1") @map("formula_version")
+  annualRatePercent   Decimal           @map("annual_rate_percent") @db.Decimal(8, 4)
+  principalPaise      BigInt            @map("principal_paise")
+  tenureMonths        Int               @map("tenure_months")
+  contractualEmiPaise BigInt            @map("contractual_emi_paise")
+  status              ComputationStatus @default(POSTED)
+  supersededAt        DateTime?         @map("superseded_at")
+  supersedesId        String?           @unique @map("supersedes_id") @db.Uuid
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  loan         Loan              @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  supersedes   EmiSchedule?      @relation("EmiScheduleVersion", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy EmiSchedule?      @relation("EmiScheduleVersion")
+  lines        EmiScheduleLine[]
+
+  @@unique([loanId, version], map: "emi_schedules_loan_version")
+  @@map("emi_schedules")
+}
+
+model EmiScheduleLine {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  scheduleId            String    @map("schedule_id") @db.Uuid
+  loanTransactionId     String?   @map("loan_transaction_id") @db.Uuid
+  installmentNumber     Int       @map("installment_number")
+  dueOn                 DateTime  @map("due_on") @db.Date
+  openingPrincipalPaise BigInt    @map("opening_principal_paise")
+  principalPaise        BigInt    @map("principal_paise")
+  interestPaise         BigInt    @map("interest_paise")
+  emiPaise              BigInt    @map("emi_paise")
+  closingPrincipalPaise BigInt    @map("closing_principal_paise")
+  status                EmiStatus @default(DUE)
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  schedule        EmiSchedule      @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  loanTransaction LoanTransaction? @relation(fields: [loanTransactionId], references: [id], onDelete: Restrict)
+
+  @@unique([scheduleId, installmentNumber], map: "emi_lines_schedule_no")
+  @@map("emi_schedule_lines")
+}
+
+/// Outbound money. APPROVED and PAID require an approval and at least one source document.
+model Payment {
+  id                  String         @id @default(uuid()) @db.Uuid
+  organizationId      String         @map("organization_id") @db.Uuid
+  projectId           String?        @map("project_id") @db.Uuid
+  partyId             String         @map("party_id") @db.Uuid
+  bankAccountId       String?        @map("bank_account_id") @db.Uuid
+  preparedById        String         @map("prepared_by_id") @db.Uuid
+  approvalRequestId   String?        @map("approval_request_id") @db.Uuid
+  journalEntryId      String?        @unique @map("journal_entry_id") @db.Uuid
+  purpose             PaymentPurpose
+  status              PaymentStatus  @default(DRAFT)
+  paymentDate         DateTime       @map("payment_date") @db.Date
+  channel             MoneyChannel
+  instrumentReference String?        @map("instrument_reference")
+  amountPaise         BigInt         @map("amount_paise")
+  narration           String?
+  idempotencyKey      String?        @unique @map("idempotency_key")
+  rowVersion          Int            @default(1) @map("row_version")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+  deletedAt           DateTime?      @map("deleted_at")
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project         Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  party           Party               @relation(fields: [partyId], references: [id], onDelete: Restrict)
+  bankAccount     BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  preparedBy      User                @relation(fields: [preparedById], references: [id], onDelete: Restrict)
+  approvalRequest ApprovalRequest?    @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  allocations     PaymentAllocation[]
+  sourceLinks     PaymentSourceLink[]
+
+  @@index([organizationId, status], map: "payments_org_status_idx")
+  @@index([partyId], map: "payments_party_idx")
+  @@index([paymentDate], map: "payments_date_idx")
+  @@map("payments")
+}
+
+/// Exactly one target is set. Enforced by a check constraint in prisma/sql/checks.sql.
+model PaymentAllocation {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  paymentId             String   @map("payment_id") @db.Uuid
+  amountPaise           BigInt   @map("amount_paise")
+  vendorInvoiceId       String?  @map("vendor_invoice_id") @db.Uuid
+  raBillId              String?  @map("ra_bill_id") @db.Uuid
+  loanTransactionId     String?  @map("loan_transaction_id") @db.Uuid
+  contractorAdvanceId   String?  @map("contractor_advance_id") @db.Uuid
+  bookingCancellationId String?  @map("booking_cancellation_id") @db.Uuid
+  retentionEntryId      String?  @map("retention_entry_id") @db.Uuid
+  narration             String?
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  payment             Payment              @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  vendorInvoice       VendorInvoice?       @relation(fields: [vendorInvoiceId], references: [id], onDelete: Restrict)
+  raBill              RaBill?              @relation(fields: [raBillId], references: [id], onDelete: Restrict)
+  loanTransaction     LoanTransaction?     @relation(fields: [loanTransactionId], references: [id], onDelete: Restrict)
+  contractorAdvance   ContractorAdvance?   @relation(fields: [contractorAdvanceId], references: [id], onDelete: Restrict)
+  bookingCancellation BookingCancellation? @relation(fields: [bookingCancellationId], references: [id], onDelete: Restrict)
+  retentionEntry      RetentionEntry?      @relation(fields: [retentionEntryId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId], map: "payment_allocations_payment_idx")
+  @@map("payment_allocations")
+}
+
+model PaymentSourceLink {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  paymentId      String   @map("payment_id") @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  document     Document     @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, documentId], map: "payment_source_links_payment_doc")
+  @@map("payment_source_links")
+}
+
+model TallyLedgerMap {
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  tallyLedgerName String @map("tally_ledger_name")
+  glAccountId     String @map("gl_account_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  glAccount    GlAccount    @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, tallyLedgerName], map: "tally_ledger_maps_org_name")
+  @@map("tally_ledger_maps")
+}
+
+model ImportBatch {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  createdById    String       @map("created_by_id") @db.Uuid
+  documentId     String?      @map("document_id") @db.Uuid
+  kind           ImportKind
+  status         ImportStatus @default(PENDING)
+  rowCount       Int          @default(0) @map("row_count")
+  errorCount     Int          @default(0) @map("error_count")
+  errorReport    Json?        @map("error_report")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy            User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  document             Document?             @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  bankStatementImports BankStatementImport[]
+
+  @@index([organizationId, kind], map: "import_batches_org_kind_idx")
+  @@map("import_batches")
+}
+
+// ---------------------------------------------------------------------------
+// Documents, exceptions, notifications, sync, search
+// ---------------------------------------------------------------------------
+
+model Document {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  uploadedById   String    @map("uploaded_by_id") @db.Uuid
+  entityType     RecordRef @map("entity_type")
+  entityId       String    @map("entity_id") @db.Uuid
+  fileName       String    @map("file_name")
+  mimeType       String    @map("mime_type")
+  byteSize       Int       @map("byte_size")
+  storageKey     String    @map("storage_key")
+  sha256         String
+  ocrStatus      OcrStatus @default(PENDING) @map("ocr_status")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy           User                  @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  ocrExtraction        OcrExtraction?
+  paymentSourceLinks   PaymentSourceLink[]
+  bankStatementImports BankStatementImport[]
+  importBatches        ImportBatch[]
+
+  @@index([organizationId, entityType, entityId], map: "documents_entity_idx")
+  @@index([sha256], map: "documents_sha_idx")
+  @@map("documents")
+}
+
+model OcrExtraction {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  documentId     String   @unique @map("document_id") @db.Uuid
+  provider       String
+  rawText        String?  @map("raw_text") @db.Text
+  fields         Json?
+  confidence     Decimal? @db.Decimal(5, 4)
+  extractedAt    DateTime @default(now()) @map("extracted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  document     Document     @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@map("ocr_extractions")
+}
+
+model ExceptionRule {
+  id                       String            @id @default(uuid()) @db.Uuid
+  organizationId           String            @map("organization_id") @db.Uuid
+  code                     ExceptionCode
+  isEnabled                Boolean           @default(true) @map("is_enabled")
+  severity                 ExceptionSeverity
+  plainLanguage            String            @map("plain_language")
+  roundFigureMultiplePaise BigInt?           @map("round_figure_multiple_paise")
+  roundFigureMinPaise      BigInt?           @map("round_figure_min_paise")
+  flagSaturday             Boolean           @default(true) @map("flag_saturday")
+  flagSunday               Boolean           @default(true) @map("flag_sunday")
+  areaVariancePercent      Decimal?          @map("area_variance_percent") @db.Decimal(8, 4)
+  wastageVariancePercent   Decimal?          @map("wastage_variance_percent") @db.Decimal(8, 4)
+  unmatchedAfterDays       Int?              @map("unmatched_after_days")
+  approvalOverdueHours     Int?              @map("approval_overdue_hours")
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  items        ExceptionItem[]
+
+  @@unique([organizationId, code], map: "exception_rules_org_code")
+  @@map("exception_rules")
+}
+
+model ExceptionItem {
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String            @map("organization_id") @db.Uuid
+  projectId         String?           @map("project_id") @db.Uuid
+  ruleId            String?           @map("rule_id") @db.Uuid
+  code              ExceptionCode
+  severity          ExceptionSeverity
+  status            ExceptionStatus   @default(OPEN)
+  title             String
+  detail            String?
+  entityType        RecordRef         @map("entity_type")
+  entityId          String            @map("entity_id") @db.Uuid
+  relatedEntityType RecordRef?        @map("related_entity_type")
+  relatedEntityId   String?           @map("related_entity_id") @db.Uuid
+  matchedOn         String?           @map("matched_on")
+  detectedAt        DateTime          @default(now()) @map("detected_at")
+  acknowledgedById  String?           @map("acknowledged_by_id") @db.Uuid
+  acknowledgedAt    DateTime?         @map("acknowledged_at")
+  resolvedById      String?           @map("resolved_by_id") @db.Uuid
+  resolvedAt        DateTime?         @map("resolved_at")
+  resolutionNote    String?           @map("resolution_note")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project        Project?       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  rule           ExceptionRule? @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  acknowledgedBy User?          @relation("ExceptionAcknowledger", fields: [acknowledgedById], references: [id], onDelete: Restrict)
+  resolvedBy     User?          @relation("ExceptionResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, code], map: "exception_items_org_status_idx")
+  @@index([entityType, entityId], map: "exception_items_entity_idx")
+  @@map("exception_items")
+}
+
+model Notification {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  channel        NotificationChannel
+  locale         Locale              @default(EN)
+  templateKey    String              @map("template_key")
+  payload        Json
+  status         NotificationStatus  @default(QUEUED)
+  error          String?
+  scheduledFor   DateTime?           @map("scheduled_for")
+  sentAt         DateTime?           @map("sent_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status], map: "notifications_org_status_idx")
+  @@map("notifications")
+}
+
+model SyncMutation {
+  id               String        @id @default(uuid()) @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
+  deviceId         String        @map("device_id") @db.Uuid
+  clientMutationId String        @map("client_mutation_id")
+  entityType       OfflineEntity @map("entity_type")
+  entityId         String?       @map("entity_id") @db.Uuid
+  payload          Json
+  status           SyncStatus    @default(PENDING)
+  rejectionReason  String?       @map("rejection_reason")
+  receivedAt       DateTime      @default(now()) @map("received_at")
+  appliedAt        DateTime?     @map("applied_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  @@unique([deviceId, clientMutationId], map: "sync_mutations_device_client")
+  @@index([organizationId, status], map: "sync_mutations_org_status_idx")
+  @@map("sync_mutations")
+}
+
+/// Projection for Cmd-K. Rebuilt from the source rows. Not a financial record.
+model SearchDocument {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  entityType     RecordRef @map("entity_type")
+  entityId       String    @map("entity_id") @db.Uuid
+  title          String
+  subtitle       String?
+  keywords       String
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, entityType, entityId], map: "search_documents_entity")
+  @@index([organizationId, title], map: "search_documents_title_idx")
+  @@map("search_documents")
+}
