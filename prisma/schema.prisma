@@ -585,6 +585,15 @@ enum RecordRef {
   APPROVAL_REQUEST
   GL_ACCOUNT
   BANK_ACCOUNT
+  // Step 3. The audit log names these records. No new business tables.
+  ORGANIZATION
+  FISCAL_YEAR
+  APPROVAL_POLICY
+  APPROVAL_ACTION
+  PERIOD_LOCK_EVENT
+  PROJECT_ASSIGNMENT
+  DEVICE
+  JOURNAL_LINE
 }
 
 enum OcrStatus {

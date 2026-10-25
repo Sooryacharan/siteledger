@@ -1,0 +1,17 @@
+# Local PostgreSQL 16 for migrations and integration tests.
+# The app role password matches .env.example. It is a local placeholder.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: siteledger
+      POSTGRES_PASSWORD: siteledger
+      POSTGRES_DB: siteledger
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siteledger -d siteledger"]
+      interval: 2s
+      timeout: 5s
+      retries: 20

@@ -1,50 +1,91 @@
+import Link from "next/link";
+import { cookies } from "next/headers";
+
+import { ORG_COOKIE, SESSION_COOKIE, resolveSession } from "@/server/session";
+
+import { endSignIn } from "./sign-in/actions";
+
+export const dynamic = "force-dynamic";
+
 const checks = [
   {
     command: "npm run check",
-    detail: "Validates the Prisma schema, runs the money tests, and parses every Mermaid diagram.",
+    detail: "Validates the Prisma schema, runs the formula and permission tests, and parses every Mermaid diagram. No database.",
   },
   {
-    command: "npm test",
-    detail: "Interest, EMI, GST, TDS, wages, stock, profit share, GSTIN, and the hash chain.",
+    command: "docker compose up -d --wait && npm run db:migrate && npm run db:seed",
+    detail: "Starts PostgreSQL 16, applies the schema and the row-level security scripts, and loads the example firms.",
   },
   {
-    command: "npm run db:validate",
-    detail: "prisma validate and prisma format --check. No database is required.",
+    command: "npm run test:integration",
+    detail: "Proves the auditor cannot write, another firm is invisible, deletes are refused, audit rows cannot change, and a tampered journal hash is detected.",
   },
 ];
 
 const built = [
-  "Architecture, entity diagrams, and the folder map in docs/",
-  "A Prisma schema of 112 models, including phases, towers, floors, the nine area fields, and facing",
-  "Sales follow-ups, site visits, agreements, cancellations, transfers, and interest",
-  "Vendor PAN, bank fingerprint, and phone keys for duplicate detection",
-  "GSTIN checksum, CGST, SGST, and IGST on demands, invoices, and RA bills",
-  "Contractor advances and recovery, and a reducing-balance EMI schedule",
-  "Exception rules for round-figure payments and weekend payments",
-  "Row-level security SQL for multi-tenant isolation, written and not yet applied",
+  "Eight roles, with a permission matrix and a membership on each firm",
+  "Row-level security from prisma/sql, applied by a migration, including project and portal scope",
+  "An audit row on every application write: who, what, when, old value, new value, IP, and device",
+  "No hard delete on the application role. Append-only tables reject updates, including from the database owner",
+  "Maker-checker bands by amount and role. The maker cannot approve their own request",
+  "Locked periods. Only an owner can reopen one, and that reopen is logged",
+  "Hash-chain helpers for journal entries, with a check that spots a changed payload",
 ];
 
-export default function Home() {
+export default async function Home() {
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  const session = token ? await resolveSession(token) : null;
+  const organizationId = cookies().get(ORG_COOKIE)?.value;
+  const membership =
+    session?.memberships.find((item) => item.organizationId === organizationId) ??
+    session?.memberships[0];
+
   return (
     <main className="min-h-screen bg-[#f3efe4] text-[#1c1915]">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-5 py-12 sm:px-8 sm:py-16">
         <header className="flex flex-col gap-4">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-[#8a5a2a]">
-            Step 1 of 5
+            Step 3 of 5
           </p>
           <h1 className="font-[family-name:var(--font-geist-sans)] text-4xl font-semibold tracking-tight sm:text-5xl">
             SiteLedger
           </h1>
           <p className="max-w-2xl text-lg leading-relaxed text-[#3f3a33]">
-            A project ledger for a developer: every rupee, every square foot, and every bag of
-            material stays traceable. This step is the architecture and the data model. There is
-            no login, no project screen, and no sample firm loaded yet.
+            Auth, roles, and the audit log are in place. Module screens are not. The example firms
+            are Red Earth Developers and Blue Basin Estates. The people and the GSTINs are made up.
           </p>
         </header>
 
         <section className="rounded-2xl border border-[#e2d8c6] bg-white p-5 sm:p-6">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-[#6b645b]">
-            What is in the repo
+            This session
+          </h2>
+          {session && membership ? (
+            <div className="mt-4 flex flex-col gap-3 text-[15px] leading-6">
+              <p>
+                {session.user.name ?? session.user.email} is signed in to {membership.organizationName}{" "}
+                as {membership.role.replace(/_/g, " ").toLowerCase()}.
+              </p>
+              <form action={endSignIn}>
+                <button type="submit" className="text-sm font-medium text-[#8a5a2a]">
+                  Sign out
+                </button>
+              </form>
+            </div>
+          ) : (
+            <p className="mt-4 text-[15px] leading-6">
+              Nobody is signed in.{" "}
+              <Link href="/sign-in" className="font-medium text-[#8a5a2a]">
+                Sign in
+              </Link>{" "}
+              with a seeded email such as dev.krishnan@red-earth.example.
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-[#e2d8c6] bg-white p-5 sm:p-6">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-[#6b645b]">
+            What this step adds
           </h2>
           <ul className="mt-4 flex flex-col gap-3">
             {built.map((item) => (
@@ -74,23 +115,17 @@ export default function Home() {
             ))}
           </ol>
           <p className="mt-4 text-sm leading-6 text-[#3f3a33]">
-            Read <span className="font-medium">docs/ARCHITECTURE.md</span> for the rules and{" "}
-            <span className="font-medium">docs/ER.md</span> for the diagrams. The product brief is
-            stored verbatim in <span className="font-medium">docs/SPEC.md</span>. SQL under{" "}
-            <span className="font-medium">prisma/sql</span> is reviewed here and applied only after
-            a migration exists.
+            Copy <span className="font-medium">.env.example</span> to{" "}
+            <span className="font-medium">.env</span> first. The sample URLs point at the Postgres
+            service in docker-compose.yml. Read{" "}
+            <span className="font-medium">docs/ARCHITECTURE.md</span> for the confirmed rules.
           </p>
         </section>
 
         <section className="border-t border-[#e2d8c6] pt-6 text-sm leading-6 text-[#3f3a33]">
           <p>
-            Worked examples already locked by tests: ₹1,00,000 at 12% for 30 days is ₹986.30 of
-            simple interest. A ₹10,00,000 loan at 10% for 12 months has an EMI of ₹87,915.89. Three
-            paise of taxable value at 9% + 9% becomes 0 paise CGST and 1 paise SGST.
-          </p>
-          <p className="mt-3">
-            The next step, when you ask for it, is auth, roles, and the audit-log middleware. Module
-            screens stay after that.
+            The next step, when you ask for it, is the finance core: chart of accounts, journals,
+            periods, and bank accounts. Sales, vendors, and the other modules stay after that.
           </p>
         </section>
       </div>

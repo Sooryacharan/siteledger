@@ -2,7 +2,7 @@
 
 Step 1 of the product brief in [SPEC.md](./SPEC.md). This document is the system design, the folder map, and the rules the database and the formula code already follow. The entity diagram is in [ER.md](./ER.md). The field-complete model is `prisma/schema.prisma`.
 
-Nothing here is a running CRM. Auth, screens, seed data, and Docker come in later steps, and only after this design is accepted.
+Step 1 is the design below. Step 3, now in the repo, applies that design: auth, the eight roles, row-level security, the audit log, maker-checker, locked periods, and the hash-chain helpers. Module screens are still later. Postgres for this step is the `postgres` service in `docker-compose.yml`.
 
 The worked examples use a made-up firm, Red Earth Developers, and a made-up Hyderabad project, Saffron Heights. The GSTIN `36AAAAA0000A1Z3` is a shape-and-checksum example for that fiction. It is not a registered taxpayer.
 
@@ -14,11 +14,12 @@ The worked examples use a made-up firm, Red Earth Developers, and a made-up Hyde
 | This design | `docs/ARCHITECTURE.md` | written |
 | Mermaid entity diagrams | `docs/ER.md` | written |
 | Prisma schema, 112 models | `prisma/schema.prisma` | validates |
-| Row-level security, immutability, checks, views | `prisma/sql/*.sql` | written, not applied |
+| Row-level security, immutability, checks, views | `prisma/sql/*.sql` | applied by the step 3 migration |
 | Money, GST, share, and hash functions | `src/lib/**` | tested |
-| Next.js 14 status page | `src/app/page.tsx` | step 1 only |
+| Auth, audit middleware, approvals, periods, hash helpers | `src/server/**` | tested against Postgres |
+| Next.js 14 status page and sign-in | `src/app/page.tsx`, `src/app/sign-in` | step 3 |
 
-PostgreSQL is not started in this step, and no migration has been applied.
+The migration `20261025120100_security` runs `prisma/sql/rls.sql`, `immutability.sql`, `checks.sql`, and `views.sql` unchanged, then adds the local app login and the chain-head functions.
 
 ## 2. System context
 
@@ -146,20 +147,27 @@ src/
     identity/     phone, bank fingerprint, invoice fingerprint
 ```
 
-These paths are the later steps. They are not in the repo yet, and the status page does not pretend they are:
+Step 3 adds these paths:
 
 ```text
-src/app/(auth)/
+src/server/            auth, permission matrix, audit middleware, approvals, periods, journals
+src/app/sign-in/       email token sign-in
+src/app/api/auth/      session endpoints
+docker-compose.yml     PostgreSQL 16
+prisma/migrations/     schema, then the security scripts
+prisma/seed.ts         Red Earth and Blue Basin, fictional names
+```
+
+These paths are still later. The status page does not pretend they are here:
+
+```text
 src/app/(app)/projects|sales|partners|vendors|materials|contractors|finance
 src/app/(app)/documents|dashboard|exceptions|search
 src/app/portal/vendor
 src/app/portal/customer
-src/app/api/
 src/components/ui/     shadcn, added with the first real screen
-src/server/            auth, audit middleware, posting
 src/jobs/              BullMQ
 public/manifest.json
-docker-compose.yml
 ```
 
 Ids are uuids so a phone can mint one while offline. Offline entities also carry `client_mutation_id`. `SyncMutation` is unique on `(device_id, client_mutation_id)`.
@@ -391,21 +399,23 @@ flowchart LR
   s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8 --> s9 --> s10 --> s11
 ```
 
-Finance core means the chart of accounts, journals, periods, the hash chain, and bank accounts. Sales and procurement then post real journals. This step is step 1 only.
+Finance core means the chart of accounts, journals, periods, the hash chain, and bank accounts. Sales and procurement then post real journals. Step 3 stops at auth and the audit machinery. It does not open those modules. The journal helper posts a balanced entry so the hash chain can be tested. It is not the finance screen.
 
 ## 11. Decisions to confirm
 
-1. Paise integers for money, decimals for rates and areas.
-2. One `Party` for customer, vendor, contractor, partner, and lender, with flags.
-3. One hash chain per firm per chain, serialised on `ChainHead`, rather than one chain per project.
-4. Commercial margin is agreement value minus project expense. Customer receipts credit advances until possession. Accounting profit is separate.
-5. Simple interest, actual/365. Compound is rejected.
-6. Reducing-balance monthly EMI. The last line clears principal. Prepayment versions the schedule.
-7. Weighted-average stock.
-8. TDS on the full bill once the threshold is crossed. A chartered accountant should confirm this. Section 194-IA is entered, not calculated.
-9. Weekend uses the payment date. Round-figure default is a multiple of ₹1,00,000 and at least that amount.
+The owner confirmed eight of these on 25 October 2026. They stand as written in this document. The confirmation is recorded in section 12. The other items in this list are still open.
+
+1. Paise integers for money, decimals for rates and areas. **Confirmed.**
+2. One `Party` for customer, vendor, contractor, partner, and lender, with flags. **Confirmed.**
+3. One hash chain per firm per chain, serialised on `ChainHead`, rather than one chain per project. **Confirmed.**
+4. Commercial margin is agreement value minus project expense. Customer receipts credit advances until possession. Accounting profit is separate. **Confirmed.**
+5. Simple interest, actual/365. Compound is rejected. **Confirmed.**
+6. Reducing-balance monthly EMI. The last line clears principal. Prepayment versions the schedule. **Confirmed.**
+7. Weighted-average stock. **Confirmed.**
+8. TDS on the full bill once the threshold is crossed. The owner confirmed the rule as written. A chartered accountant still needs to review it. Section 194-IA is entered, not calculated.
+9. Weekend uses the payment date. Round-figure default is a multiple of ₹1,00,000 and at least that amount. **Confirmed.**
 10. Profit waterfall as in section 8. Area share cannot mix with a hurdle in this version.
-11. Build the finance core before any module posts money.
+11. Build the finance core before any module posts money. **Confirmed.**
 12. Project assignment is enforced with a `SECURITY DEFINER` function.
 13. Bank account numbers sit in Postgres under row-level security. They are not column-encrypted yet.
 14. Aadhaar is not stored.
@@ -414,3 +424,26 @@ Finance core means the chart of accounts, journals, periods, the hash chain, and
 17. A voided invoice number cannot be reused.
 18. Locale columns only. No translation tables yet.
 19. shadcn/ui arrives with the first real screen, not with this status page.
+
+## 12. Confirmed on 25 October 2026
+
+The owner accepted these eight step 1 decisions as they stand. Nothing in the rule text changed.
+
+1. Money is integer paise. Rates and areas stay decimal.
+2. One `Party` table covers customer, vendor, contractor, partner, and lender.
+3. One hash chain per firm per chain, not one chain per project.
+4. The owner dashboard margin is the commercial figure. Accounting profit is a separate figure.
+5. Interest is simple actual/365. EMI is reducing-balance monthly.
+6. Stock is weighted average. TDS applies to the full bill once the threshold is crossed. That TDS sentence is still waiting on a chartered accountant.
+7. A round-figure payment is a multiple of ₹1,00,000 and at least that amount. A weekend payment uses the payment date in the firm timezone.
+8. The finance core comes before any module posts money.
+
+Step 3 also had to choose a few operating details that were not in that list. They are open for the owner to change:
+
+- Approval bands default to auto under ₹10,000, finance from ₹10,000, and finance then owner from ₹1,00,000. A firm can replace the rows.
+- An owner may approve a finance step. Finance may approve an owner step only when the maker is the sole owner, so that payment is not stuck.
+- The owner who reopens a period may also be the requester. A one-owner firm would otherwise be unable to reopen. The database still requires the approval row, and the reopen is logged. A payment above the auto threshold still cannot be self-approved.
+- Sign-in is an emailed one-time token. There is no password column. The token is shown on the local sign-in page only when `AUTH_EXPOSE_SIGNIN_TOKEN=true`.
+- A used sign-in token and a signed-out session row are deleted. They are not business records. Business rows are not hard-deleted.
+- The auditor may insert only `LOGIN` and `EXPORT` audit rows. Moving the audit chain head goes through `app.advance_chain_head`, because the existing policies do not let an auditor update `chain_heads`.
+- `RecordRef` gained names for organization, fiscal year, approval policy, approval action, period lock, project assignment, device, and journal line, so the audit log can name those writes. No business table was added.

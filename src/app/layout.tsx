@@ -16,7 +16,7 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "SiteLedger",
   description:
-    "Architecture and data model for a real-estate project ledger. Step 1 of SiteLedger.",
+    "Auth, roles, and the audit log for a real-estate project ledger. Step 3 of SiteLedger.",
 };
 
 export default function RootLayout({

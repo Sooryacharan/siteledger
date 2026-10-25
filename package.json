@@ -8,7 +8,11 @@
     "start": "next start -p 43123 -H 0.0.0.0",
     "lint": "next lint",
     "db:validate": "prisma validate && prisma format --check",
-    "test": "node --import tsx --test src/lib/money/formulas.test.ts src/lib/money/share.test.ts src/lib/gst/gstin.test.ts src/lib/integrity/hash.test.ts src/lib/identity/normalize.test.ts",
+    "test": "node --import tsx --test src/lib/money/formulas.test.ts src/lib/money/share.test.ts src/lib/gst/gstin.test.ts src/lib/integrity/hash.test.ts src/lib/identity/normalize.test.ts src/server/permissions.test.ts src/server/approval-rules.test.ts src/server/period-rules.test.ts src/server/chain.test.ts",
+    "test:integration": "node --env-file=.env --import tsx --test --test-concurrency=1 src/server/access.integration.test.ts",
+    "db:up": "docker compose up -d --wait",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
     "check:docs": "node scripts/check-mermaid.mjs",
     "check:schema": "node scripts/check-schema-coverage.mjs",
     "check": "npm run db:validate && npm test && npm run check:docs && npm run check:schema"
@@ -33,5 +37,8 @@
     "tailwindcss": "^3.4.1",
     "tsx": "^4.20.6",
     "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
