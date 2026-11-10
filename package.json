@@ -8,8 +8,8 @@
     "start": "next start -p 43123 -H 0.0.0.0",
     "lint": "next lint",
     "db:validate": "prisma validate && prisma format --check",
-    "test": "node --import tsx --test src/lib/money/formulas.test.ts src/lib/money/share.test.ts src/lib/gst/gstin.test.ts src/lib/integrity/hash.test.ts src/lib/identity/normalize.test.ts src/server/permissions.test.ts src/server/approval-rules.test.ts src/server/period-rules.test.ts src/server/chain.test.ts",
-    "test:integration": "node --env-file=.env --import tsx --test --test-concurrency=1 src/server/access.integration.test.ts",
+    "test": "node --import tsx --test src/lib/money/formulas.test.ts src/lib/money/share.test.ts src/lib/gst/gstin.test.ts src/lib/integrity/hash.test.ts src/lib/identity/normalize.test.ts src/lib/area/variance.test.ts src/server/permissions.test.ts src/server/approval-rules.test.ts src/server/period-rules.test.ts src/server/chain.test.ts",
+    "test:integration": "node --env-file=.env --import tsx --test --test-concurrency=1 src/server/access.integration.test.ts src/server/projects.integration.test.ts",
     "db:up": "docker compose up -d --wait",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
@@ -19,8 +19,12 @@
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
+    "@radix-ui/react-slot": "^1.2.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "decimal.js": "10.5.0",
     "next": "14.2.35",
+    "tailwind-merge": "^2.6.0",
     "react": "^18",
     "react-dom": "^18"
   },

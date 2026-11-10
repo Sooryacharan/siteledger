@@ -254,6 +254,150 @@ async function seedFirm(firm: FirmSeed, people: Array<{ email: string; name: str
   });
 }
 
+async function ensureBuildings(): Promise<void> {
+  const red = await ownerDb.organization.findUnique({ where: { slug: "red-earth" } });
+  const owner = await ownerDb.user.findUnique({ where: { email: RED_EARTH.ownerEmail } });
+  if (!red || !owner) return;
+  const project = await ownerDb.project.findFirst({
+    where: { organizationId: red.id, code: "SAFFRON", deletedAt: null },
+  });
+  if (!project) return;
+  const existing = await ownerDb.unit.count({ where: { projectId: project.id, deletedAt: null } });
+  if (existing > 0) return;
+
+  await ownerDb.$transaction(async (tx) => {
+    const phase = await tx.projectPhase.create({
+      data: { organizationId: red.id, projectId: project.id, name: "Phase 1", sortOrder: 1 },
+    });
+    const tower = await tx.tower.create({
+      data: { organizationId: red.id, projectId: project.id, phaseId: phase.id, name: "Tower A" },
+    });
+    const ground = await tx.floor.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        towerId: tower.id,
+        levelNumber: 0,
+        label: "Ground",
+      },
+    });
+    const first = await tx.floor.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        towerId: tower.id,
+        levelNumber: 1,
+        label: "First floor",
+      },
+    });
+    const groundFlat = await tx.unit.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        towerId: tower.id,
+        floorId: ground.id,
+        flatNumber: "A-G01",
+        facing: "EAST",
+        createdById: owner.id,
+        carpetPlannedSqft: "980.000",
+        carpetApprovedSqft: "980.000",
+        carpetBuiltSqft: "980.000",
+        superBuiltUpPlannedSqft: "1450.000",
+        superBuiltUpApprovedSqft: "1450.000",
+        superBuiltUpBuiltSqft: "1450.000",
+      },
+    });
+    const flagged = await tx.unit.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        towerId: tower.id,
+        floorId: first.id,
+        flatNumber: "A-101",
+        facing: "NORTH",
+        createdById: owner.id,
+        carpetPlannedSqft: "1120.000",
+        carpetApprovedSqft: "1120.000",
+        carpetBuiltSqft: "1120.000",
+        superBuiltUpPlannedSqft: "1680.000",
+        superBuiltUpApprovedSqft: "1680.000",
+        superBuiltUpBuiltSqft: "1740.000",
+      },
+    });
+    await tx.unitAreaRevision.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        unitId: flagged.id,
+        field: "SUPER_BUILT_UP_BUILT",
+        previousSqft: "1680.000",
+        newSqft: "1740.000",
+        reason: "Site measure came in 60 sqft over the approved super built-up area",
+        recordedById: owner.id,
+      },
+    });
+    await tx.unitAreaRevision.create({
+      data: {
+        organizationId: red.id,
+        projectId: project.id,
+        unitId: groundFlat.id,
+        field: "SUPER_BUILT_UP_BUILT",
+        previousSqft: "0.000",
+        newSqft: "1450.000",
+        reason: "Opening measurement",
+        recordedById: owner.id,
+      },
+    });
+  });
+
+  const blue = await ownerDb.organization.findUnique({ where: { slug: "blue-basin" } });
+  const blueOwner = await ownerDb.user.findUnique({ where: { email: BLUE_BASIN.ownerEmail } });
+  if (!blue || !blueOwner) return;
+  const lotus = await ownerDb.project.findFirst({ where: { organizationId: blue.id, code: "LOTUS" } });
+  if (lotus) return;
+  await ownerDb.$transaction(async (tx) => {
+    const project = await tx.project.create({
+      data: {
+        organizationId: blue.id,
+        code: "LOTUS",
+        name: "Lotus Court",
+        city: "Bengaluru",
+        stateCode: "29",
+        createdById: blueOwner.id,
+      },
+    });
+    const phase = await tx.projectPhase.create({
+      data: { organizationId: blue.id, projectId: project.id, name: "Phase 1", sortOrder: 1 },
+    });
+    const tower = await tx.tower.create({
+      data: { organizationId: blue.id, projectId: project.id, phaseId: phase.id, name: "Tower 1" },
+    });
+    const floor = await tx.floor.create({
+      data: {
+        organizationId: blue.id,
+        projectId: project.id,
+        towerId: tower.id,
+        levelNumber: 0,
+        label: "Ground",
+      },
+    });
+    await tx.unit.create({
+      data: {
+        organizationId: blue.id,
+        projectId: project.id,
+        towerId: tower.id,
+        floorId: floor.id,
+        flatNumber: "1-G01",
+        facing: "WEST",
+        createdById: blueOwner.id,
+        superBuiltUpPlannedSqft: "1200.000",
+        superBuiltUpApprovedSqft: "1200.000",
+        superBuiltUpBuiltSqft: "1200.000",
+      },
+    });
+  });
+}
+
 export async function seed(): Promise<void> {
   await seedFirm(RED_EARTH, [
     { email: RED_EARTH.ownerEmail, name: RED_EARTH.ownerName, role: "OWNER" },
@@ -268,6 +412,7 @@ export async function seed(): Promise<void> {
   await seedFirm(BLUE_BASIN, [
     { email: BLUE_BASIN.ownerEmail, name: BLUE_BASIN.ownerName, role: "OWNER" },
   ]);
+  await ensureBuildings();
 }
 
 const entry = process.argv[1]?.includes("prisma/seed");

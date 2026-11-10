@@ -1,9 +1,19 @@
 import { randomUUID } from "node:crypto";
 
 import { withTenant } from "./db";
+import { AccessError } from "./errors";
 import { assertCan } from "./permissions";
 import { nextPeriodStatus } from "./period-rules";
 import type { TenantContext } from "./tenant";
+
+/** A reopen needs a sentence, not a blank or a one-word tick. */
+export function assertWrittenReason(reason: string): string {
+  const trimmed = reason.trim();
+  if (trimmed.length < 8) {
+    throw new AccessError("write the reason in a sentence", "PERIOD");
+  }
+  return trimmed;
+}
 
 export async function softClosePeriod(ctx: TenantContext, periodId: string, reason: string) {
   assertCan(ctx.role, "write");
@@ -45,12 +55,13 @@ export async function lockPeriod(ctx: TenantContext, periodId: string, reason: s
 }
 
 /**
- * Owner-only. The same owner may request and approve, because a one-owner firm
- * still has to reopen a period, and the database requires an approval row.
- * A payment above the auto threshold still cannot be self-approved.
+ * Owner-only. A one-owner firm may reopen, but only with a written reason.
+ * The approval row, the period-lock event, and the audit log all keep that reason.
+ * A payment above the automatic band still cannot be self-approved.
  */
 export async function reopenPeriod(ctx: TenantContext, periodId: string, reason: string) {
   assertCan(ctx.role, "period.reopen");
+  const written = assertWrittenReason(reason);
   return withTenant(ctx, async (tx) => {
     const period = await tx.accountingPeriod.findUniqueOrThrow({ where: { id: periodId } });
     const status = nextPeriodStatus(period.status, "REOPEN", ctx.role);
@@ -74,7 +85,7 @@ export async function reopenPeriod(ctx: TenantContext, periodId: string, reason:
         stepOrder: 1,
         actorId: ctx.userId,
         decision: "APPROVED",
-        comment: reason,
+        comment: written,
       },
     });
     await tx.periodLockEvent.create({
@@ -82,7 +93,7 @@ export async function reopenPeriod(ctx: TenantContext, periodId: string, reason:
         organizationId: ctx.organizationId,
         periodId,
         action: "REOPEN",
-        reason,
+        reason: written,
         actorId: ctx.userId,
         approvalRequestId: requestId,
       },
