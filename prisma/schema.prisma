@@ -594,6 +594,7 @@ enum RecordRef {
   PROJECT_ASSIGNMENT
   DEVICE
   JOURNAL_LINE
+  UNIT_AREA_REVISION
 }
 
 enum OcrStatus {

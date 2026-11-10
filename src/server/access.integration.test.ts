@@ -352,6 +352,7 @@ describe("auth, tenants, audit, and the hash chain", () => {
     assert.equal(small.status, "APPROVED");
     assert.equal(small.actions[0]?.actorId, null);
 
+    const checker = await firm.member("FINANCE");
     const large = await submitApproval(finance.ctx, {
       entityType: "PAYMENT",
       entityId: randomUUID(),
@@ -362,7 +363,11 @@ describe("auth, tenants, audit, and the hash chain", () => {
       decideApproval(finance.ctx, { requestId: large.id, decision: "APPROVED" }),
     );
     assert.match(selfCheck, /maker cannot be the checker/);
-    const approved = await decideApproval(owner.ctx, {
+    const ownerOnFinanceStep = await messageOf(() =>
+      decideApproval(owner.ctx, { requestId: large.id, decision: "APPROVED" }),
+    );
+    assert.match(ownerOnFinanceStep, /cannot approve a step that requires FINANCE/);
+    const approved = await decideApproval(checker.ctx, {
       requestId: large.id,
       decision: "APPROVED",
     });
