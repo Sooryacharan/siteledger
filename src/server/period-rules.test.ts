@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { AccessError } from "./errors";
+import { assertWrittenReason } from "./periods";
 import { nextPeriodStatus } from "./period-rules";
 
 describe("period moves", () => {
@@ -22,6 +23,18 @@ describe("period moves", () => {
     );
     assert.throws(
       () => nextPeriodStatus("LOCKED", "REOPEN", "AUDITOR"),
+      (error: unknown) => error instanceof AccessError,
+    );
+  });
+
+  it("requires a written reason before a locked period can be reopened", () => {
+    assert.equal(assertWrittenReason("  A bill was left out  "), "A bill was left out");
+    assert.throws(
+      () => assertWrittenReason("   "),
+      (error: unknown) => error instanceof AccessError && error.code === "PERIOD",
+    );
+    assert.throws(
+      () => assertWrittenReason("oops"),
       (error: unknown) => error instanceof AccessError,
     );
   });

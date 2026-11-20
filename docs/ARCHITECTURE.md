@@ -399,11 +399,11 @@ flowchart LR
   s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8 --> s9 --> s10 --> s11
 ```
 
-Finance core means the chart of accounts, journals, periods, the hash chain, and bank accounts. Sales and procurement then post real journals. Step 3 stops at auth and the audit machinery. It does not open those modules. The journal helper posts a balanced entry so the hash chain can be tested. It is not the finance screen.
+Finance core means the chart of accounts, journals, periods, the hash chain, and bank accounts. Sales and procurement then post real journals. Projects and units are in the app. They do not post money. The journal helper still exists only so the hash chain can be tested. It is not the finance screen.
 
 ## 11. Decisions to confirm
 
-The owner confirmed eight of these on 25 October 2026. They stand as written in this document. The confirmation is recorded in section 12. The other items in this list are still open.
+The owner confirmed every item in this list. The eight step 1 decisions were accepted on 25 October 2026. The remaining defaults were accepted on 10 November 2026. They stand as written here. Section 12 records both rounds. Item 8 is still waiting on a chartered accountant; the product rule itself is not open.
 
 1. Paise integers for money, decimals for rates and areas. **Confirmed.**
 2. One `Party` for customer, vendor, contractor, partner, and lender, with flags. **Confirmed.**
@@ -414,16 +414,16 @@ The owner confirmed eight of these on 25 October 2026. They stand as written in 
 7. Weighted-average stock. **Confirmed.**
 8. TDS on the full bill once the threshold is crossed. The owner confirmed the rule as written. A chartered accountant still needs to review it. Section 194-IA is entered, not calculated.
 9. Weekend uses the payment date. Round-figure default is a multiple of ₹1,00,000 and at least that amount. **Confirmed.**
-10. Profit waterfall as in section 8. Area share cannot mix with a hurdle in this version.
+10. Profit waterfall as in section 8. Area share cannot mix with a hurdle in this version. **Confirmed.**
 11. Build the finance core before any module posts money. **Confirmed.**
-12. Project assignment is enforced with a `SECURITY DEFINER` function.
-13. Bank account numbers sit in Postgres under row-level security. They are not column-encrypted yet.
-14. Aadhaar is not stored.
-15. An auto-approval still writes an approval row. The maker cannot be the checker.
-16. GSTIN position 14 must be `Z`.
-17. A voided invoice number cannot be reused.
-18. Locale columns only. No translation tables yet.
-19. shadcn/ui arrives with the first real screen, not with this status page.
+12. Project assignment is enforced with a `SECURITY DEFINER` function. **Confirmed.**
+13. Bank account numbers sit in Postgres under row-level security. They are not column-encrypted yet. **Confirmed.**
+14. Aadhaar is not stored. **Confirmed.**
+15. An auto-approval still writes an approval row. The maker cannot be the checker. **Confirmed.**
+16. GSTIN position 14 must be `Z`. **Confirmed.**
+17. A voided invoice number cannot be reused. **Confirmed.**
+18. Locale columns only. No translation tables yet. **Confirmed.**
+19. shadcn/ui arrives with the first real screen, not with this status page. **Confirmed.** The Projects and Units screens are that first screen.
 
 ## 12. Confirmed on 25 October 2026
 
@@ -438,12 +438,21 @@ The owner accepted these eight step 1 decisions as they stand. Nothing in the ru
 7. A round-figure payment is a multiple of ₹1,00,000 and at least that amount. A weekend payment uses the payment date in the firm timezone.
 8. The finance core comes before any module posts money.
 
-Step 3 also had to choose a few operating details that were not in that list. They are open for the owner to change:
+## 13. Confirmed on 10 November 2026
 
-- Approval bands default to auto under ₹10,000, finance from ₹10,000, and finance then owner from ₹1,00,000. A firm can replace the rows.
-- An owner may approve a finance step. Finance may approve an owner step only when the maker is the sole owner, so that payment is not stuck.
-- The owner who reopens a period may also be the requester. A one-owner firm would otherwise be unable to reopen. The database still requires the approval row, and the reopen is logged. A payment above the auto threshold still cannot be self-approved.
-- Sign-in is an emailed one-time token. There is no password column. The token is shown on the local sign-in page only when `AUTH_EXPOSE_SIGNIN_TOKEN=true`.
-- A used sign-in token and a signed-out session row are deleted. They are not business records. Business rows are not hard-deleted.
-- The auditor may insert only `LOGIN` and `EXPORT` audit rows. Moving the audit chain head goes through `app.advance_chain_head`, because the existing policies do not let an auditor update `chain_heads`.
-- `RecordRef` gained names for organization, fiscal year, approval policy, approval action, period lock, project assignment, device, and journal line, so the audit log can name those writes. No business table was added.
+Soorya accepted the recommended default for every decision that was still open.
+
+1. Approval bands are automatic below ₹10,000. From ₹10,000, Finance approves. From ₹1,00,000, Finance approves and then an Owner approves. A firm may replace the rows later, but these are the defaults.
+2. Owner and Finance cross-approve. The checker must hold the role that step asks for, and nobody approves their own payment. An owner does not stand in for finance, and finance does not stand in for an owner.
+3. A one-owner firm may reopen a locked period. The owner writes a reason, and the audit log records the reopen. A blank reason is refused. A payment above the automatic band still cannot be self-approved.
+4. Decision 10 stands: the profit waterfall in section 8, and area share cannot be mixed with a hurdle.
+5. Decision 12 stands: project assignment is enforced with `app.project_allowed`, a `SECURITY DEFINER` function.
+6. Decision 13 stands: bank account numbers sit in Postgres under row-level security. They are not column-encrypted yet.
+7. Decision 14 stands: Aadhaar is not stored.
+8. Decision 15 stands: an automatic approval still writes an approval row, and the maker cannot be the checker.
+9. Decision 16 stands: GSTIN position 14 must be `Z`.
+10. Decision 17 stands: a voided invoice number cannot be reused.
+11. Decision 18 stands: locale columns only. No translation tables yet.
+12. Decision 19 stands: shadcn/ui arrives with the first real screen. Projects and Units is that screen.
+
+Sign-in stays a one-time email token, with no password column. The local sign-in page shows the token only when `AUTH_EXPOSE_SIGNIN_TOKEN=true`. A used token and a signed-out session row are removed. They are not business records. The auditor may insert only `LOGIN` and `EXPORT` audit rows.

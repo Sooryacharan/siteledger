@@ -12,7 +12,8 @@ The product brief is in [docs/SPEC.md](docs/SPEC.md). The design is in [docs/ARC
 - Row-level security, immutability, checks, and views from `prisma/sql`, applied by `prisma/migrations`.
 - An append-only audit log, maker-checker amount bands, owner-only period reopen, and journal hash-chain helpers.
 - Tested formula code for interest, EMI, GST, TDS, attendance wages, weighted-average stock, BOQ allowance, profit share, GSTIN, and the hash chain.
-- Seed data for two fictional firms, Red Earth Developers and Blue Basin Estates.
+- Seed data for two fictional firms, Red Earth Developers and Blue Basin Estates. Red Earth includes Saffron Heights, with flats and one area warning.
+- A projects screen: phases, towers, floors, flats, and the built-versus-approved area check.
 
 ## Run the status page
 

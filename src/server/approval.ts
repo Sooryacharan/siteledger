@@ -89,16 +89,11 @@ export async function decideApproval(
     if (!step?.approverRole) {
       throw new AccessError("this step has no checker", "APPROVAL");
     }
-    const owners = await tx.membership.findMany({
-      where: { role: "OWNER", isActive: true, deletedAt: null },
-      select: { userId: true },
-    });
     assertEligibleChecker({
       requesterId: request.requestedById,
       actorId: ctx.userId,
       actorRole: ctx.role,
       requiredRole: step.approverRole,
-      ownerIds: owners.map((owner) => owner.userId),
     });
     await tx.approvalAction.create({
       data: {

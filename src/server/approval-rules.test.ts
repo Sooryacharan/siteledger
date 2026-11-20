@@ -72,21 +72,29 @@ describe("approval bands", () => {
           actorId: "owner",
           actorRole: "OWNER",
           requiredRole: "FINANCE",
-          ownerIds: ["owner", "second"],
         }),
       (error: unknown) => error instanceof AccessError && error.code === "APPROVAL",
     );
   });
 
-  it("lets finance cover an owner step only when the maker is the sole owner", () => {
+  it("requires the named role, so owner and finance cross-approve", () => {
     assert.doesNotThrow(() =>
       assertEligibleChecker({
-        requesterId: "owner",
+        requesterId: "maker",
         actorId: "finance",
         actorRole: "FINANCE",
-        requiredRole: "OWNER",
-        ownerIds: ["owner"],
+        requiredRole: "FINANCE",
       }),
+    );
+    assert.throws(
+      () =>
+        assertEligibleChecker({
+          requesterId: "maker",
+          actorId: "owner",
+          actorRole: "OWNER",
+          requiredRole: "FINANCE",
+        }),
+      (error: unknown) => error instanceof AccessError,
     );
     assert.throws(
       () =>
@@ -95,7 +103,6 @@ describe("approval bands", () => {
           actorId: "finance",
           actorRole: "FINANCE",
           requiredRole: "OWNER",
-          ownerIds: ["owner", "second"],
         }),
       (error: unknown) => error instanceof AccessError,
     );

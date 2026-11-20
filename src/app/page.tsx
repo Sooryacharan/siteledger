@@ -23,6 +23,8 @@ const checks = [
 ];
 
 const built = [
+  "Projects, phases, towers, floors, and flats, with planned, approved, and built area",
+  "A warning when the built area is further from the approved area than the project allows",
   "Eight roles, with a permission matrix and a membership on each firm",
   "Row-level security from prisma/sql, applied by a migration, including project and portal scope",
   "An audit row on every application write: who, what, when, old value, new value, IP, and device",
@@ -45,14 +47,14 @@ export default async function Home() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-5 py-12 sm:px-8 sm:py-16">
         <header className="flex flex-col gap-4">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-[#8a5a2a]">
-            Step 3 of 5
+            Projects and units
           </p>
           <h1 className="font-[family-name:var(--font-geist-sans)] text-4xl font-semibold tracking-tight sm:text-5xl">
             SiteLedger
           </h1>
           <p className="max-w-2xl text-lg leading-relaxed text-[#3f3a33]">
-            Auth, roles, and the audit log are in place. Module screens are not. The example firms
-            are Red Earth Developers and Blue Basin Estates. The people and the GSTINs are made up.
+            Sign in, then open a project to see its towers, floors, and flats. The example firms are
+            Red Earth Developers and Blue Basin Estates. The people and the GSTINs are made up.
           </p>
         </header>
 
@@ -66,6 +68,13 @@ export default async function Home() {
                 {session.user.name ?? session.user.email} is signed in to {membership.organizationName}{" "}
                 as {membership.role.replace(/_/g, " ").toLowerCase()}.
               </p>
+              {membership.role === "VENDOR" || membership.role === "CUSTOMER" ? (
+                <p>The project list is for the office. Your own orders and payments stay in the portal, which is not built yet.</p>
+              ) : (
+                <Link href="/projects" className="font-medium text-[#8a5a2a]">
+                  Open projects
+                </Link>
+              )}
               <form action={endSignIn}>
                 <button type="submit" className="text-sm font-medium text-[#8a5a2a]">
                   Sign out
