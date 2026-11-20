@@ -2,6 +2,8 @@ import { GENESIS_HASH } from "../src/lib/integrity/hash";
 import { gstinCheckDigit, validateGstin } from "../src/lib/gst/gstin";
 import { defaultPaymentBands } from "../src/server/approval-rules";
 import { appendAudit, ownerDb } from "../src/server/db";
+import { addAccount, addBankAccount } from "../src/server/finance";
+import { postJournal } from "../src/server/journal";
 import { applySession, type TenantContext } from "../src/server/tenant";
 
 const CHAINS = ["JOURNAL", "STOCK", "SHARE", "AUDIT"] as const;
@@ -413,6 +415,113 @@ export async function seed(): Promise<void> {
     { email: BLUE_BASIN.ownerEmail, name: BLUE_BASIN.ownerName, role: "OWNER" },
   ]);
   await ensureBuildings();
+  await ensureFinance();
+}
+
+async function ensureFinance(): Promise<void> {
+  await seedBooks({
+    slug: "red-earth",
+    ownerEmail: RED_EARTH.ownerEmail,
+    cashRupees: "200000",
+    bankRupees: "300000",
+    bank: {
+      displayName: "Red Earth current account",
+      bankName: "Example Cooperative Bank",
+      accountNumber: "00011000000011",
+      ifsc: "REDB0000001",
+    },
+  });
+  await seedBooks({
+    slug: "blue-basin",
+    ownerEmail: BLUE_BASIN.ownerEmail,
+    cashRupees: "50000",
+    bankRupees: null,
+    bank: null,
+  });
+}
+
+async function seedBooks(input: {
+  slug: string;
+  ownerEmail: string;
+  cashRupees: string;
+  bankRupees: string | null;
+  bank: { displayName: string; bankName: string; accountNumber: string; ifsc: string } | null;
+}): Promise<void> {
+  const org = await ownerDb.organization.findUnique({ where: { slug: input.slug } });
+  const owner = await ownerDb.user.findUnique({ where: { email: input.ownerEmail } });
+  if (!org || !owner) return;
+  const ctx: TenantContext = {
+    organizationId: org.id,
+    userId: owner.id,
+    role: "OWNER",
+    partyId: null,
+    ipAddress: null,
+    userAgent: "seed",
+    deviceId: null,
+    requestId: "seed-finance",
+  };
+  const cash =
+    (await ownerDb.glAccount.findFirst({ where: { organizationId: org.id, code: "1000" } })) ??
+    (await addAccount(ctx, { code: "1000", name: "Cash box", accountType: "ASSET", normalBalance: "DEBIT" }));
+  const capital =
+    (await ownerDb.glAccount.findFirst({ where: { organizationId: org.id, code: "3000" } })) ??
+    (await addAccount(ctx, {
+      code: "3000",
+      name: "Owner's money in the firm",
+      accountType: "EQUITY",
+      normalBalance: "CREDIT",
+    }));
+  const costs = await ownerDb.glAccount.findFirst({ where: { organizationId: org.id, code: "5000" } });
+  if (!costs) {
+    await addAccount(ctx, { code: "5000", name: "Site costs", accountType: "EXPENSE", normalBalance: "DEBIT" });
+  }
+  const cashBox = await ownerDb.bankAccount.findFirst({ where: { glAccountId: cash.id } });
+  if (!cashBox) {
+    await addBankAccount(ctx, {
+      glAccountId: cash.id,
+      displayName: "Cash box",
+      bankName: "",
+      accountNumber: "",
+      ifsc: "",
+      isCash: true,
+    });
+  }
+  let bankGl = await ownerDb.glAccount.findFirst({ where: { organizationId: org.id, code: "1100" } });
+  if (input.bank && input.bankRupees && !bankGl) {
+    bankGl = await addAccount(ctx, {
+      code: "1100",
+      name: "Bank account",
+      accountType: "ASSET",
+      normalBalance: "DEBIT",
+    });
+  }
+  if (input.bank && bankGl) {
+    const linked = await ownerDb.bankAccount.findFirst({ where: { glAccountId: bankGl.id } });
+    if (!linked) {
+      await addBankAccount(ctx, { ...input.bank, glAccountId: bankGl.id, isCash: false });
+    }
+  }
+  const posted = await ownerDb.journalEntry.count({ where: { organizationId: org.id, source: "CAPITAL" } });
+  if (posted > 0) return;
+  const lines = [{ glAccountId: cash.id, debitPaise: BigInt(input.cashRupees) * 100n, creditPaise: 0n }];
+  let credit = BigInt(input.cashRupees) * 100n;
+  if (bankGl && input.bankRupees) {
+    const bankPaise = BigInt(input.bankRupees) * 100n;
+    lines.push({ glAccountId: bankGl.id, debitPaise: bankPaise, creditPaise: 0n });
+    credit += bankPaise;
+  }
+  lines.push({ glAccountId: capital.id, debitPaise: 0n, creditPaise: credit });
+  const period = await ownerDb.accountingPeriod.findFirst({
+    where: { organizationId: org.id, name: "April 2026" },
+  });
+  if (!period) return;
+  await postJournal(ctx, {
+    periodId: period.id,
+    entryDate: new Date("2026-04-02T00:00:00.000Z"),
+    narration: "Opening money brought in by the owner",
+    source: "CAPITAL",
+    lines,
+  });
 }
 
 const entry = process.argv[1]?.includes("prisma/seed");

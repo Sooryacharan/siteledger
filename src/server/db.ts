@@ -48,6 +48,7 @@ const ENTITY_TYPE: Record<string, RecordRef> = {
   UnitAreaRevision: "UNIT_AREA_REVISION",
   Lead: "LEAD",
   GlAccount: "GL_ACCOUNT",
+  BankAccount: "BANK_ACCOUNT",
   JournalEntry: "JOURNAL_ENTRY",
   JournalLine: "JOURNAL_LINE",
 };
@@ -84,7 +85,7 @@ function snapshot(row: unknown): Record<string, unknown> | null {
 type LockRow = { last_hash: string; last_sequence: number };
 
 export async function appendAudit(
-  tx: Prisma.TransactionClient,
+  tx: unknown,
   ctx: TenantContext,
   input: {
     action: AuditAction;
@@ -98,11 +99,12 @@ export async function appendAudit(
     throw new AccessError("an auditor cannot write", "FORBIDDEN");
   }
 
+  const db = tx as Prisma.TransactionClient;
   const store = tenantStore.getStore();
   const previous = store?.inAudit ?? false;
   if (store) store.inAudit = true;
   try {
-    const locked = await tx.$queryRaw<LockRow[]>`
+    const locked = await db.$queryRaw<LockRow[]>`
       SELECT last_hash, last_sequence
       FROM app.lock_chain_head(${ctx.organizationId}::uuid, ${"AUDIT"})
     `;
@@ -125,7 +127,7 @@ export async function appendAudit(
       before: input.before,
       after: input.after,
     });
-    await tx.auditEvent.create({
+    await db.auditEvent.create({
       data: {
         id: eventId,
         organizationId: ctx.organizationId,
@@ -145,7 +147,7 @@ export async function appendAudit(
         eventHash: hash,
       },
     });
-    await tx.$executeRaw`
+    await db.$executeRaw`
       SELECT app.advance_chain_head(
         ${ctx.organizationId}::uuid,
         ${"AUDIT"},
@@ -245,10 +247,12 @@ function extend(base: PrismaClient) {
 
 function databaseUrl(name: "DATABASE_URL" | "APP_DATABASE_URL"): string {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is not set. Copy .env.example to .env.`);
-  }
-  return value;
+  if (value) return value;
+  // Placeholder from .env.example so unit tests can import this module
+  // without opening a connection. A real command loads .env.
+  return name === "DATABASE_URL"
+    ? "postgresql://siteledger:siteledger@127.0.0.1:5432/siteledger?schema=public"
+    : "postgresql://siteledger_app:siteledger_app@127.0.0.1:5432/siteledger?schema=public";
 }
 
 /** Migration owner. Bypasses row-level security. Used for sign-in, seed, and tamper checks. */

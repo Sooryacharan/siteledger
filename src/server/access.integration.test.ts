@@ -11,7 +11,6 @@ import { recordExport, verifyAuditChain } from "./audit-log";
 import { defaultPaymentBands } from "./approval-rules";
 import { decideApproval, submitApproval } from "./approval";
 import { disconnectDatabases, ownerDb, withTenant, type AppTx } from "./db";
-import { AccessError } from "./errors";
 import { postJournal, verifyJournalChain } from "./journal";
 import { lockPeriod, reopenPeriod, softClosePeriod } from "./periods";
 import { confirmSignIn, requestSignIn, resolveSession } from "./session";

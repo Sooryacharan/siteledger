@@ -14,6 +14,7 @@ The product brief is in [docs/SPEC.md](docs/SPEC.md). The design is in [docs/ARC
 - Tested formula code for interest, EMI, GST, TDS, attendance wages, weighted-average stock, BOQ allowance, profit share, GSTIN, and the hash chain.
 - Seed data for two fictional firms, Red Earth Developers and Blue Basin Estates. Red Earth includes Saffron Heights, with flats and one area warning.
 - A projects screen: phases, towers, floors, flats, and the built-versus-approved area check.
+- The books: chart of accounts, balanced journals in paise, accounting periods, bank and cash balances, and payment approvals.
 
 ## Run the status page
 
