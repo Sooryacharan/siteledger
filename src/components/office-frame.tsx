@@ -24,6 +24,9 @@ export function OfficeFrame({
             <Link href="/projects" className="text-sm text-[#8a5a2a]">
               Projects
             </Link>
+            <Link href="/finance" className="text-sm text-[#8a5a2a]">
+              Books
+            </Link>
           </div>
           <div className="flex items-center gap-4 text-sm text-[#3f3a33]">
             <span>

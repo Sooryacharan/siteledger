@@ -24,15 +24,16 @@ export async function recordExport(
 }
 
 export async function verifyAuditChain(
-  tx: Prisma.TransactionClient,
+  tx: unknown,
   organizationId: string,
 ): Promise<ChainReport> {
+  const db = tx as Prisma.TransactionClient;
   const [events, head] = await Promise.all([
-    tx.auditEvent.findMany({
+    db.auditEvent.findMany({
       where: { organizationId },
       orderBy: { sequence: "asc" },
     }),
-    tx.chainHead.findUnique({
+    db.chainHead.findUnique({
       where: { organizationId_chain: { organizationId, chain: "AUDIT" } },
     }),
   ]);

@@ -163,16 +163,17 @@ export async function postJournal(ctx: TenantContext, input: JournalInput) {
 }
 
 export async function verifyJournalChain(
-  tx: Prisma.TransactionClient,
+  tx: unknown,
   organizationId: string,
 ): Promise<ChainReport> {
+  const db = tx as Prisma.TransactionClient;
   const [entries, head] = await Promise.all([
-    tx.journalEntry.findMany({
+    db.journalEntry.findMany({
       where: { organizationId, status: { in: ["POSTED", "REVERSED"] } },
       orderBy: { sequence: "asc" },
       include: { lines: { orderBy: { lineNumber: "asc" } } },
     }),
-    tx.chainHead.findUnique({
+    db.chainHead.findUnique({
       where: { organizationId_chain: { organizationId, chain: "JOURNAL" } },
     }),
   ]);
