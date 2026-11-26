@@ -2,13 +2,14 @@ import type { ApprovalDecision, ApprovalEntity } from "@prisma/client";
 
 import {
   assertEligibleChecker,
+  assertWrittenApprovalReason,
   bandsForAmount,
   type ApprovalBand,
 } from "./approval-rules";
 import { withTenant, type AppTx } from "./db";
 import { AccessError } from "./errors";
 import { assertCan } from "./permissions";
-import type { TenantContext } from "./tenant";
+import { tenantStore, type TenantContext } from "./tenant";
 
 async function loadBands(
   tx: AppTx,
@@ -89,22 +90,41 @@ export async function decideApproval(
     if (!step?.approverRole) {
       throw new AccessError("this step has no checker", "APPROVAL");
     }
+    const owners = await tx.membership.findMany({
+      where: { role: "OWNER", isActive: true, deletedAt: null },
+      select: { userId: true },
+    });
     assertEligibleChecker({
       requesterId: request.requestedById,
       actorId: ctx.userId,
       actorRole: ctx.role,
       requiredRole: step.approverRole,
+      amountPaise: request.amountPaise,
+      ownerIds: owners.map((owner) => owner.userId),
+      writtenReason: input.comment,
     });
-    await tx.approvalAction.create({
-      data: {
-        organizationId: ctx.organizationId,
-        requestId: request.id,
-        stepOrder: step.stepOrder,
-        actorId: ctx.userId,
-        decision: input.decision,
-        comment: input.comment,
-      },
-    });
+    const soleOwnerReason =
+      step.approverRole === "OWNER" &&
+      ctx.userId === request.requestedById &&
+      owners.length === 1
+        ? assertWrittenApprovalReason(input.comment)
+        : input.comment?.trim() || null;
+    const store = tenantStore.getStore();
+    if (store) store.actionOverride = input.decision === "APPROVED" ? "APPROVE" : "REJECT";
+    try {
+      await tx.approvalAction.create({
+        data: {
+          organizationId: ctx.organizationId,
+          requestId: request.id,
+          stepOrder: step.stepOrder,
+          actorId: ctx.userId,
+          decision: input.decision,
+          comment: soleOwnerReason,
+        },
+      });
+    } finally {
+      if (store) store.actionOverride = null;
+    }
     if (input.decision === "REJECTED") {
       return tx.approvalRequest.update({
         where: { id: request.id },

@@ -11,7 +11,9 @@ import { AccessError } from "./errors";
  *
  * The checker must hold the role that step names. An owner does not
  * approve a finance step, and finance does not approve an owner step.
- * The person who asked cannot approve their own payment.
+ * The person who asked cannot approve their own payment, except one case:
+ * a firm with a single owner may let that owner approve their own payment
+ * of ₹1,00,000 or more, and only when they write a reason.
  *
  * ₹10,000 is 1,000,000 paise. ₹1,00,000 is 10,000,000 paise.
  */
@@ -59,7 +61,8 @@ export function defaultPaymentBands(): Array<ApprovalBand & { plainLanguage: str
       stepOrder: 2,
       approverRole: "OWNER",
       autoApprove: false,
-      plainLanguage: "From ₹1,00,000, an owner approves after finance. Nobody approves their own payment.",
+      plainLanguage:
+        "From ₹1,00,000, an owner approves after finance. A firm with one owner may approve their own payment only with a written reason.",
     },
   ];
 }
@@ -74,12 +77,39 @@ export function bandsForAmount(policies: ApprovalBand[], amountPaise: bigint): A
     .sort((a, b) => a.stepOrder - b.stepOrder);
 }
 
+export function assertWrittenApprovalReason(reason: string | null | undefined): string {
+  const trimmed = reason?.trim() ?? "";
+  if (trimmed.length < 8) {
+    throw new AccessError(
+      "the only owner must write a reason before approving their own payment",
+      "APPROVAL",
+    );
+  }
+  return trimmed;
+}
+
 export function assertEligibleChecker(input: {
   requesterId: string;
   actorId: string;
   actorRole: MembershipRole;
   requiredRole: MembershipRole;
+  amountPaise?: bigint | null;
+  ownerIds?: readonly string[];
+  writtenReason?: string | null;
 }): void {
+  const soleOwner =
+    input.ownerIds?.length === 1 &&
+    input.ownerIds[0] === input.actorId &&
+    input.actorId === input.requesterId &&
+    input.actorRole === "OWNER" &&
+    input.requiredRole === "OWNER" &&
+    input.amountPaise != null &&
+    input.amountPaise >= DEFAULT_OWNER_MIN_PAISE;
+
+  if (soleOwner) {
+    assertWrittenApprovalReason(input.writtenReason);
+    return;
+  }
   if (input.actorId === input.requesterId) {
     throw new AccessError("the maker cannot be the checker", "APPROVAL");
   }

@@ -77,6 +77,59 @@ describe("approval bands", () => {
     );
   });
 
+  it("lets the only owner approve their own large payment when they write a reason", () => {
+    assert.throws(
+      () =>
+        assertEligibleChecker({
+          requesterId: "owner",
+          actorId: "owner",
+          actorRole: "OWNER",
+          requiredRole: "OWNER",
+          amountPaise: 10_000_000n,
+          ownerIds: ["owner"],
+          writtenReason: "  ",
+        }),
+      (error: unknown) => error instanceof AccessError,
+    );
+    assert.doesNotThrow(() =>
+      assertEligibleChecker({
+        requesterId: "owner",
+        actorId: "owner",
+        actorRole: "OWNER",
+        requiredRole: "OWNER",
+        amountPaise: 10_000_000n,
+        ownerIds: ["owner"],
+        writtenReason: "The site needs this cement before the pour",
+      }),
+    );
+    assert.throws(
+      () =>
+        assertEligibleChecker({
+          requesterId: "owner",
+          actorId: "owner",
+          actorRole: "OWNER",
+          requiredRole: "OWNER",
+          amountPaise: 2_000_000n,
+          ownerIds: ["owner"],
+          writtenReason: "This is below one lakh",
+        }),
+      (error: unknown) => error instanceof AccessError && /maker cannot be the checker/.test(error.message),
+    );
+    assert.throws(
+      () =>
+        assertEligibleChecker({
+          requesterId: "owner",
+          actorId: "owner",
+          actorRole: "OWNER",
+          requiredRole: "OWNER",
+          amountPaise: 10_000_000n,
+          ownerIds: ["owner", "second"],
+          writtenReason: "Another owner exists",
+        }),
+      (error: unknown) => error instanceof AccessError,
+    );
+  });
+
   it("requires the named role, so owner and finance cross-approve", () => {
     assert.doesNotThrow(() =>
       assertEligibleChecker({

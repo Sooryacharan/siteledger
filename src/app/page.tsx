@@ -71,9 +71,16 @@ export default async function Home() {
               {membership.role === "VENDOR" || membership.role === "CUSTOMER" ? (
                 <p>The project list is for the office. Your own orders and payments stay in the portal, which is not built yet.</p>
               ) : (
-                <Link href="/projects" className="font-medium text-[#8a5a2a]">
-                  Open projects
-                </Link>
+                <span className="flex gap-4">
+                  <Link href="/projects" className="font-medium text-[#8a5a2a]">
+                    Open projects
+                  </Link>
+                  {membership.role === "OWNER" || membership.role === "FINANCE" || membership.role === "AUDITOR" ? (
+                    <Link href="/finance" className="font-medium text-[#8a5a2a]">
+                      Open the books
+                    </Link>
+                  ) : null}
+                </span>
               )}
               <form action={endSignIn}>
                 <button type="submit" className="text-sm font-medium text-[#8a5a2a]">
@@ -133,8 +140,7 @@ export default async function Home() {
 
         <section className="border-t border-[#e2d8c6] pt-6 text-sm leading-6 text-[#3f3a33]">
           <p>
-            The next step, when you ask for it, is the finance core: chart of accounts, journals,
-            periods, and bank accounts. Sales, vendors, and the other modules stay after that.
+            Sales, vendors, and the other modules stay after the books. They are not in this step.
           </p>
         </section>
       </div>

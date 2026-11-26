@@ -443,8 +443,8 @@ The owner accepted these eight step 1 decisions as they stand. Nothing in the ru
 Soorya accepted the recommended default for every decision that was still open.
 
 1. Approval bands are automatic below ₹10,000. From ₹10,000, Finance approves. From ₹1,00,000, Finance approves and then an Owner approves. A firm may replace the rows later, but these are the defaults.
-2. Owner and Finance cross-approve. The checker must hold the role that step asks for, and nobody approves their own payment. An owner does not stand in for finance, and finance does not stand in for an owner.
-3. A one-owner firm may reopen a locked period. The owner writes a reason, and the audit log records the reopen. A blank reason is refused. A payment above the automatic band still cannot be self-approved.
+2. Owner and Finance cross-approve. The checker must hold the role that step asks for. An owner does not stand in for finance, and finance does not stand in for an owner. Nobody approves their own payment, except the one-owner case in item 3.
+3. A one-owner firm may reopen a locked period. The owner writes a reason, and the audit log records the reopen. A blank reason is refused. On 20 November 2026 Soorya added this payment rule: when a firm has only one Owner, that Owner may approve their own payment of ₹1,00,000 or more only after entering a written reason. The reason is stored on the approval and in the audit log, and the auditor can read it. A blank reason is refused. Payments below ₹1,00,000 still cannot be self-approved.
 4. Decision 10 stands: the profit waterfall in section 8, and area share cannot be mixed with a hurdle.
 5. Decision 12 stands: project assignment is enforced with `app.project_allowed`, a `SECURITY DEFINER` function.
 6. Decision 13 stands: bank account numbers sit in Postgres under row-level security. They are not column-encrypted yet.
